@@ -18,12 +18,12 @@
 
 ## 2. Principios de diseño
 
-1. **Autocontenida Rust:** `std + ort + ndarray + rustfft + hound + clap + indicatif + reqwest + ffmpeg` binario. Sin `Python/torch/librosa/Flask/pillow/opencv`.
+1. **Autocontenida Rust:** `std + ort 2 (download-binaries, E3) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 + serde 1 (+derive)/serde_json + log + env_logger + which (E5b) + ffmpeg` binario (+ `sha2/flate2/tar/home/ctrlc/anyhow(thiserror en lib)`, `rand 0.8` solo dev; `rust-version="1.75"`, `edition="2021"`, `Cargo.lock` cometido, `[profile.release] opt-level=3, strip=true`; lista completa en `especificaciones.md RNF-01`). Sin `Python/torch/librosa/Flask/pillow/opencv`.
 2. **Portar Python→Rust, no reinventar DSP:** constantes y orden de operaciones de DeepFilterNet3 desde `audio_engine.py` se copian exactos. El riesgo es regresión numérica.
 3. **Video nunca se re-codifica:** `-c:v copy`. Solo el audio se procesa.
 4. **Fallo explícito y limpio:** exit codes, temps siempre borrados, `String::from_utf8_lossy` en Windows.
 5. **CLI predecible para batch y scripting:** `--dry-run`, `--json`, `--skip-existing`, lote secuencial.
-6. **Implementación legible Rust:** `stable 1.75+ edition 2021`, `PathBuf`, `clippy+rustfmt`, `anyhow/thiserror`, funciones pequeñas, sin estado global salvo sesiones `ort` cacheadas (`Mutex`).
+6. **Implementación legible Rust:** `stable 1.75+ edition 2021`, `PathBuf`, `clippy+rustfmt`, `anyhow` en bin / `thiserror` en lib (F2), `log + env_logger` (`info`/`-v debug`), funciones pequeñas, sin estado global salvo sesiones `ort` cacheadas (`Mutex`).
 7. **Testing por pirámide:** unitarias rápidas sin I/O (`cargo test`), doradas DSP bloqueantes + e2e `remux` con `#[ignore]` (slow) vía `cargo test -- --ignored`.
 8. **Documentación como contrato:** `README.md` (MIT + atribución DFN3) + `--help` + ejemplos idénticos a §4; `CHANGELOG.md` por release (inicial `1.0.0`); `LICENSE` MIT en raíz.
 
@@ -36,10 +36,11 @@
   LICENSE                  # MIT (código nuevo)
   README.md                  # instalación, 3 ejemplos, atribución MIT © Rikorose/DeepFilterNet
   CHANGELOG.md               # por release (inicial 1.0.0)
-  Cargo.toml                 # bin denoise, version="1.0.0" fuente única (D1-Rust), edition 2021
+  Cargo.toml                 # bin denoise, version="1.0.0" fuente única (D1-Rust), edition 2021, rust-version 1.75, pins F1, [profile.release]
   Cargo.lock                 # congelado en repo
   src/
-    main.rs                  # bin denoise, parseo clap + salida proceso
+    main.rs                  # bin denoise fino (llama a lib)
+    lib.rs                   # lib denoise_videos, re-exporta cli/pipeline/df/models/ffmpeg_io/errors (E2 para tests/)
     cli.rs                   # clap, expansión entradas, naming salida, reporte lote
     pipeline.rs              # clean_one_video(): extract → denoise → remux + verificación
     df.rs                    # DSP DeepFilterNet3 + inferencia ort (puro, sin I/O proceso)
@@ -67,7 +68,7 @@ denoise INPUT... [-o OUT | --output-dir DIR] [--prefix STR] [--suffix STR]
   [--dry-run] [--json] [-v] [--version]
 ```
 
-* `INPUT...`: 1..N rutas. Cada una puede ser archivo (`mp4/mov/mkv/webm/avi`) o directorio. Entry-point congelado: bin `denoise` desde `src/main.rs` (`cargo run -- ...` equivalente, `version` desde `Cargo.toml`).
+* `INPUT...`: 1..N rutas. Cada una puede ser archivo (`mp4/mov/mkv/webm/avi`) o directorio. Entry-point congelado: bin `denoise` desde `src/main.rs` sobre lib `src/lib.rs` (`cargo run -- ...` equivalente, `version` desde `Cargo.toml`). E2: los tests de integración importan la lib, nunca el bin.
 * `--audio-bitrate`: bitrate AAC de salida en kbps (defecto `192`, rango `64-320`).
 * Reglas de salida (precedencia):
   1. Si `N==1` y `-o OUT`: ese archivo exacto.
@@ -86,7 +87,7 @@ expandir → validar extensión/existencia → resolver salida (puras, sin I/O)
   → has_audio? → modelo listo? → colisión?
   → [1-5%] ffmpeg extract mono 48k a TMP.in.wav
   → [6-80%] df::denoise() por chunks 60s/1s con callback (d,t)
-  → [81-95%] ffmpeg remux copy+AAC a OUT.part.mp4 → rename atómico `std::fs::rename` a OUT.mp4 (con `--overwrite` reemplaza; decisión Ronda 4)
+  → [81-95%] ffmpeg remux copy+AAC a OUT.part.mp4 → rename E1 a OUT.mp4 (POSIX atómico con reemplazo; Win con `--overwrite` remove previo + rename, sin overwrite falla si existe; decisión Ronda 4)
   → [96-99%] verificar OUT existe y >0B → limpiar temps → [100%] report {ok,failed,skipped}
 ```
 
@@ -94,8 +95,9 @@ Responsabilidades estrictas:
 * `cli.rs`: parseo `clap`, expansión determinista, `resolve_output()` pura, bucle lote secuencial, reporte. No DSP. D6: expansión excluye `--output-dir` si está dentro de `INPUT` + aviso en `-v`.
 * `pipeline.rs`: orquesta un video, traduce progreso a `0-100` según D4, garantiza limpieza + borrado parcial en error/`Ctrl+C`. D5 verificación ligera runtime: `>0B + duración ±0.5s + Audio AAC presente`.
 * `df.rs`: solo `ndarray+rustfft+ort`, firma `denoise_wav(in_wav: &Path, out_wav: &Path, progress_cb)`. Sin `Command`, sin `println!` en núcleo. D7: I/O WAV con `hound` PCM16 ↔ `f32` (`/32768.0`, clip antes de `i16`).
-* `ffmpeg_io.rs`: `find_ffmpeg()`, `has_audio()`, `extract_mono48k()`, `remux_copy()`, `verify_output_ligero()` D5. Todo `Command` argv, `String::from_utf8_lossy`.
-* `models.rs`: `ensure_models(model_dir, progress_cb)` idempotente + verificación tamaño (+SHA según D2).
+* `ffmpeg_io.rs`: `find_ffmpeg()` (E5b vía crate `which`, con `PATHEXT` en Win), `has_audio()`, `extract_mono48k()`, `remux_copy()`, `verify_output_ligero()` D5. Todo `Command` argv, `String::from_utf8_lossy`.
+* `models.rs`: `ensure_models(model_dir, progress_cb)` tras trait `ModelsProvider` (E5a, `FakeProvider` en tests) + verificación tamaño (+SHA según D2).
+* `errors.rs`: enum `E_*` + `exit_code()` con `thiserror` en lib / `anyhow` en bin (E5a+F2, creado en F1, usado desde F1 sin I/O).
 
 Comandos ffmpeg exactos a reimplementar:
 
@@ -110,7 +112,7 @@ ffmpeg -y -v error -i IN -i TMP.out.wav
 
 Detección de audio: `ffmpeg -hide_banner -i IN` contiene `Audio:`. Sin audio → error `E_NO_AUDIO`, no se genera salida.
 
-Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida (decisión Ronda 3: se mantiene junto a salida, no `tempdir`). Limpieza garantizada en todos los caminos; con `-v` se conservan para debug. D8-Rust: handler `ctrlc` → `Child::kill`, borra `.part` + temps, `exit 3`; en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX.
+Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida (decisión Ronda 3: se mantiene junto a salida, no `tempdir`). Limpieza garantizada en todos los caminos; con `-v` se conservan para debug. D8-Rust + E6c + F2: handler `ctrlc` → `Child::kill` (`ffmpeg`) + aborto cooperativo de `ort` entre chunks (latencia máx 1 chunk en curso), borra `.part` + temps, `exit 3` (2º `Ctrl+C` fuerza salida inmediata); en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX. Fallos de escritura → `E_IO`.
 
 ## 6. Módulo `df.rs` — especificación DSP (no cambiar valores)
 
@@ -142,33 +144,33 @@ Criterio de fidelidad D3: `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` y `SI-
 
 * Artefactos: `dfn3_enc.onnx`, `dfn3_erb_dec.onnx`, `dfn3_df_dec.onnx` (~8MB total, tarball `7983136B`).
 * Origen único: `https://github.com/Rikorose/DeepFilterNet/raw/v0.5.6/models/DeepFilterNet3_onnx.tar.gz`, miembros `tmp/export/{enc,erb_dec,df_dec}.onnx`. Verificación D2: tamaño `7983136B >=98%` siempre + `SHA256` interino solo tamaño+warning hasta T2.5, tras registro `SHA256` obligatorio y mismatch → `E_MODEL_MISSING`; tag `v1.0.0` bloqueado hasta registrarlo (en primera descarga con tamaño ok se calcula el hash real con `Get-FileHash`/`sha256sum` y se sustituye en `especificaciones.md RF-06/RNF-05` + este `§7`).
-* Cache: `--model-dir` (defecto `~/.cache/denoise-videos/models/` vía `home`/`dirs` + `PathBuf` en Win/macOS/Linux). Sin `NEXTGENUP_DATA` ni `static/models` del original (`../NextgenUp/paths.py`, `../NextgenUp/static/`).
-* Comportamiento: si faltan → descarga con `User-Agent: Video-Noise-Remover/1.0.0`, progreso `indicatif`, verificación tamaño+(SHA según D2), extracción `tar.gz`, borrado archivo. D11: `timeout 30s + retry 3 con backoff`, anti `tar-slip` (solo miembros `tmp/export/{enc,erb_dec,df_dec}.onnx`, rechaza `..`/absolutos), chequeo espacio disco antes de descargar, `.part + rename atómico`. Si la descarga falla → error `E_MODEL_MISSING` con URL y ruta manual esperada. Sesiones `ort` `CPUExecutionProvider`, cacheadas (`Mutex`), un lock de inferencia.
+* Cache: `--model-dir` (defecto E4a `~/.cache/denoise-videos/models/` vía `home_dir()+.cache` + `PathBuf` en Win/macOS/Linux). Sin `NEXTGENUP_DATA` ni `static/models` del original (`../NextgenUp/paths.py`, `../NextgenUp/static/`).
+* Comportamiento: si faltan → descarga con `User-Agent: Video-Noise-Remover/1.0.0`, progreso `indicatif`, verificación tamaño+(SHA según D2), extracción `tar.gz`, borrado archivo. D11: `timeout 30s + retry 3 con backoff`, anti `tar-slip` (solo miembros `tmp/export/{enc,erb_dec,df_dec}.onnx`, rechaza `..`/absolutos), chequeo espacio disco antes de descargar, `.part + rename` con regla E1 (F3b: Win `remove` previo si existe). Si la descarga falla → error `E_MODEL_MISSING` con URL y ruta manual esperada (disco → `E_IO`). Sesiones `ort` `CPUExecutionProvider` (binarios vía `download-binaries`, E3), cacheadas (`Mutex`), un lock de inferencia.
 
 ## 8. Módulo `ffmpeg_io.rs` + errores
 
-Resolución: `--ffmpeg-path` → `PATH` (búsqueda `split_paths`) → error `E_FFMPEG_NOT_FOUND`. Requiere `ffmpeg 6+`, verificado con `ffmpeg -version` D11 con regex `ffmpeg version (\d+)\.` (major>=6, `from_utf8_lossy`), sin `ffprobe` (probe y `has_audio` vía `ffmpeg -hide_banner -i`, heredado de `../NextgenUp@16e01bb/` Python). Receta por OS en `README.md`: Win `winget install Gyan.FFmpeg` / `choco install ffmpeg`, macOS `brew install ffmpeg`, Linux `apt install ffmpeg`.
+Resolución E5b: `--ffmpeg-path` → crate `which` en `PATH` (con `PATHEXT` en Win) → error `E_FFMPEG_NOT_FOUND`. Requiere `ffmpeg 6+`, verificado con `ffmpeg -version` D11 con regex `ffmpeg version (\d+)\.` (major>=6, `from_utf8_lossy`), sin `ffprobe` (probe y `has_audio` vía `ffmpeg -hide_banner -i`, heredado de `../NextgenUp@16e01bb/` Python). Receta por OS en `README.md`: Win `winget install Gyan.FFmpeg` / `choco install ffmpeg`, macOS `brew install ffmpeg`, Linux `apt install ffmpeg`.
 
 Taxonomía estable (código → exit):
 * `E_INVALID_INPUT` → 2: ruta inexistente, extensión no soportada, `0B`, `bitrate` fuera de `64-320`, `-o` con `N>1`, `prefix+suffix` ambos vacíos con salida in-place, D9 directorio sin videos/lote vacío.
 * `E_OUTPUT_EXISTS` → 2: destino existe sin `--overwrite` ni `--skip-existing`.
 * `E_NO_AUDIO` → 2: sin pista `Audio:`.
-* `E_FFMPEG_NOT_FOUND`, `E_MODEL_MISSING`, `E_FFMPEG_FAILED` → 1.
-* `E_CANCELLED` (`Ctrl+C` D8) → 3.
+* `E_FFMPEG_NOT_FOUND`, `E_MODEL_MISSING`, `E_FFMPEG_FAILED`, `E_IO` (E6b: disco lleno/sin permiso/sin espacio/`-o` no creable) → 1.
+* `E_CANCELLED` (`Ctrl+C` D8 + E6c cooperativo entre chunks) → 3.
 
 | Código | Caso | Salida |
 |---|---|---|
 | 0 | ok / `skipped` con `--skip-existing` | archivo verificado D5 ligero |
-| 1 | `E_FFMPEG_NOT_FOUND`, `E_MODEL_MISSING`, `E_FFMPEG_FAILED` | stderr + no salida parcial |
+| 1 | `E_FFMPEG_NOT_FOUND`, `E_MODEL_MISSING`, `E_FFMPEG_FAILED`, `E_IO` | stderr + no salida parcial |
 | 2 | `E_NO_AUDIO`, `E_INVALID_INPUT`, `E_OUTPUT_EXISTS` | nada escrito |
-| 3 | `E_CANCELLED` | proceso hijo matado (`Child::kill`, Win `CREATE_NEW_PROCESS_GROUP`), temps y `.part` borrados |
+| 3 | `E_CANCELLED` | proceso hijo matado (`Child::kill`, Win `CREATE_NEW_PROCESS_GROUP`), inferencia abortada entre chunks (E6c), temps y `.part` borrados |
 
 Batch nunca aborta en el primer fallo (salvo `Ctrl+C`): continúa y resume `ok/failed/skipped` con exit D9: `3` si hubo cancelación, si no `1` si hubo algún fallo `1`, si no `2` si hubo fallos `2`, si no `0`.
 
 Reporte dinámico pero ordenado (sin nuevos flags):
-* Humano (defecto, TTY): cabecera `[i/N] in → out`, una barra viva por video a `stderr` (`indicatif`, `unit=chunk`), más línea final por video `done|failed|skipped + MB + segundos`. Resumen final siempre visible. Flush explícito, sin emojis, ASCII seguro en `pwsh`.
-* Humano sin TTY/CI: sin animación, líneas ` [i/N] name ... 45% msg` cada cambio de fase.
-* `-v`: añade a `stderr` comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños `in.wav/out.wav`, y conserva temps.
+* Humano (defecto, TTY): cabecera `[i/N] in → out`, una barra viva por video a `stderr` (`indicatif`, `unit=chunk`; F2 `hidden()` con `--json`/sin TTY), más línea final por video `done|failed|skipped + MB + segundos`. Resumen final siempre visible. Flush explícito, sin emojis, ASCII seguro en `pwsh`.
+* Humano sin TTY/CI: sin animación (`hidden()`), líneas ` [i/N] name ... 45% msg` cada cambio de fase.
+* `-v`: `log + env_logger` (`info`/`debug`), añade a `stderr` comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños `in.wav/out.wav`, y conserva temps.
 * `--json`: desactiva animación; `stdout` = `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (contrato congelado Ronda 3 + D4: `status ∈ {ok,failed,skipped,dry-run}`, `pct` según mapeo `0/1-5/6-80/81-95/96-99/100`, `summary` sin `pct`); progreso humano suprimido. Parseable con `jq`. `status ∈ {ok,failed,skipped,dry-run}`, `pct 0-100`, `summary` con conteos del lote. Ver `especificaciones.md RF-08`.
 * `--dry-run`: tabla `input → output (skip: motivo)` sin crear nada, mismo orden que el lote real (formato congelado Ronda 3 + D4: con `--json` emite `JSONL` con `status="dry-run" pct=0`).
 * `--version`: imprime `denoise-videos 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` desde `Cargo.toml` vía `env!("CARGO_PKG_VERSION")` (fuente única D1-Rust, formato congelado Ronda 3 + D9: sin `ffmpeg` imprime `ffmpeg missing`). Ver `especificaciones.md RF-10`.
@@ -195,9 +197,9 @@ Summary: ok=4 failed=1 skipped=0
 ## 10. Plan de verificación mínima
 
 1. `test_naming` (rápido, sin ffmpeg/red): 1 archivo, N archivos, `--output-dir`, `prefix/suffix`, `-o` solo `N==1`, colisión + `overwrite/skip`, `--recursive` recrea árbol + D6 exclusión, caracteres inválidos → `E_INVALID_INPUT`.
-2. `test_golden` (`#[ignore]` slow): wav sintético determinista (seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32`) en `tests/data/` → D3: `mejora >=5dB` y `paridad vs referencia >=60dB` (refs informativas `+5dB` / `20.8dB` / `~77dB`). Falla si DSP difiere.
-3. `test_remux` (`#[ignore]` slow): video 5s barras+tono → mismo `vcodec/res/fps`, duración `±0.2s`, `acodec=aac,sr=48000,bitrate±10%`, D10 `vcodec` sin re-encode por hash stream video/`extradata` (prohibido comparar tamaño fichero total ±5%).
-4. `test_errors`: sin audio → `E_NO_AUDIO`; ffmpeg ausente → `E_FFMPEG_NOT_FOUND`; descarga rota → `E_MODEL_MISSING`; destino existe → `E_OUTPUT_EXISTS`/`skipped`; `bitrate 9999` → `E_INVALID_INPUT`. Nada parcial en disco.
+2. `test_golden` (`#[ignore]` slow) E6a: generador Rust (`rand StdRng seed 0` + Box-Muller, `hound`): seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` en `tests/data/` → D3: `mejora >=5dB` y `paridad vs referencia >=60dB` (refs informativas `+5dB` / `20.8dB` / `~77dB`). Falla si DSP difiere.
+3. `test_remux` (`#[ignore]` slow) E6a+F3a: fixture `ffmpeg -y -v error -f lavfi -i testsrc=size=640x480:rate=30:duration=5 -f lavfi -i sine=frequency=440:sample_rate=48000:duration=5 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k -shortest fixture.mp4` → mismo `vcodec/res/fps`, duración `±0.2s`, `acodec=aac,sr=48000,bitrate±10%`, D10+F3a sin re-encode: `vcodec`/`res`/`fps`/`extradata` iguales + `sha256` de `ffmpeg -y -v error -i OUT.mp4 -map 0:v:0 -c copy -f h264 -` idéntico al de la entrada (prohibido comparar tamaño fichero total ±5%).
+4. `test_errors`: sin audio → `E_NO_AUDIO`; ffmpeg ausente → `E_FFMPEG_NOT_FOUND`; descarga rota → `E_MODEL_MISSING`; destino existe → `E_OUTPUT_EXISTS`/`skipped`; `bitrate 9999` → `E_INVALID_INPUT`; disco/sin permiso → `E_IO` (E6b). Nada parcial en disco.
 5. `test_reporter`: lote 3 simulado verifica orden `[1/3..3/3]`, `JSONL` parseable, resumen `ok/failed/skipped`, sin animación con `--json` o sin TTY.
 6. Manual: 1 video corto Win + lote 5 videos, `--dry-run` primero, luego real + `--json`. Comandos: `cargo test` y `cargo test -- --ignored`.
 

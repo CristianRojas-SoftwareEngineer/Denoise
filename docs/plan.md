@@ -7,7 +7,7 @@
 
 ## 0. Convenciones globales (valen para todas las fases)
 
-* Stack V1 Rust (congelado): `stable 1.75+ edition 2021 + ort + ndarray + rustfft + hound + clap 4 + indicatif + reqwest (rustls) + sha2 + flate2 + tar + home/dirs + ctrlc + anyhow/thiserror + serde_json` + binario `ffmpeg 6+`. Sin Python en runtime.
+* Stack V1 Rust (congelado): `stable 1.75+ (`rust-version="1.75"`, `edition="2021"`) + ort 2 (feature download-binaries, E3) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (rustls) + sha2 + flate2 + tar + home + which (E5b) + ctrlc + anyhow (bin)/thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger` + `rand 0.8` dev-dep fixtures + binario `ffmpeg 6+`. `Cargo.lock` cometido; `[profile.release] opt-level=3, strip=true`. Sin Python en runtime. E4a: `model-dir` defecto `~/.cache` en las 3 OS.
 * Estilo: `PathBuf`, `clippy+rustfmt`, `std::process::Command` argv sin shell, `String::from_utf8_lossy`, ASCII seguro en `pwsh`, flush explícito.
 * Versión: `Cargo.toml [package] version="1.0.0"` fuente única vía `env!("CARGO_PKG_VERSION")` (D1-Rust). `LICENSE MIT`, `README.md`, `CHANGELOG.md (1.0.0)` en raíz.
 * Comandos:
@@ -24,8 +24,8 @@ Objetivo: repo Rust compilable vacío que prueba `RNF-01`.
 
 * T0.1 `.gitignore` Rust: `target/`, `*.tmp.*.wav`, `*.part.mp4`.
 * T0.2 Crear `LICENSE` MIT, `README.md` mínimo (instalación `cargo build --release` + `ffmpeg 6+`, 3 ejemplos idénticos a `nuevo-diseño.md §4` + limitaciones mono/primera pista/secuencial + atribución `MIT © Rikorose/DeepFilterNet`), `CHANGELOG.md` con entrada `1.0.0`.
-* T0.3 Crear `Cargo.toml` mínimo: `[package] name="denoise-videos" version="1.0.0" edition="2021"`, `[[bin]] name="denoise" path="src/main.rs"`, deps `clap 4 + ort + ndarray + rustfft + hound + indicatif + reqwest + sha2 + flate2 + tar + home + ctrlc + anyhow + thiserror + serde_json`. Decisión D1-Rust: fuente única `Cargo.toml`, prohibido duplicar versión en código.
-* T0.4 Crear esqueleto `src/main.rs`, `cli.rs`, `pipeline.rs`, `df.rs`, `models.rs`, `ffmpeg_io.rs`, `errors.rs` con `TODO` + `tests/test_naming.rs`, `test_golden.rs`, `test_remux.rs`, `test_errors.rs`, `test_reporter.rs`, `common/si_sdr.rs`, `data/README.md` (contenido real en Fases 1-4).
+* T0.3 Crear `Cargo.toml` mínimo F1: `[package] name="denoise-videos" version="1.0.0" edition="2021" rust-version="1.75"`, `[lib] name="denoise_videos" path="src/lib.rs"`, `[[bin]] name="denoise" path="src/main.rs"`, `[profile.release] opt-level=3, strip=true`, deps `clap 4 + ort 2 (feature download-binaries, E3) + ndarray + rustfft + hound + indicatif + reqwest 0.12 + sha2 + flate2 + tar + home + which (E5b) + ctrlc + anyhow + thiserror + serde 1 (+derive) + serde_json + log + env_logger`, dev-deps `rand 0.8` (E4b fixtures). Decisión D1-Rust: fuente única `Cargo.toml`, prohibido duplicar versión en código.
+* T0.4 Crear esqueleto `src/main.rs` (fino), `src/lib.rs` (E2: re-exporta módulos para `tests/`), `cli.rs`, `pipeline.rs`, `df.rs`, `models.rs`, `ffmpeg_io.rs`, `errors.rs` con `TODO` + `tests/test_naming.rs`, `test_golden.rs`, `test_remux.rs`, `test_errors.rs`, `test_reporter.rs`, `tests/common/si_sdr.rs`, `tests/data/README.md` (contenido real en Fases 1-4).
 * T0.5 Verificación: `cargo build --release` + `./target/release/denoise --help` (aunque sea stub) funciona con el repo copiado a otra carpeta con toolchain Rust.
 
 Salida: `cargo test` colecta 0 tests sin error; `RNF-01` verificable.
@@ -34,6 +34,7 @@ Salida: `cargo test` colecta 0 tests sin error; `RNF-01` verificable.
 
 Objetivo: cerrar `RF-01/02/03/04 + RF-08(dry-run/reporte puro) + RF-10(help/version)` con `tests/test_naming.rs` en verde. Portar nada del original; todo nuevo Rust.
 
+* T1.0 `errors.rs` (E5a, primero): enum `E_*` (`E_INVALID_INPUT/E_OUTPUT_EXISTS/E_NO_AUDIO/E_FFMPEG_NOT_FOUND/E_MODEL_MISSING/E_FFMPEG_FAILED/E_IO/E_CANCELLED`, E6b) + `exit_code()` (`E_IO→1`) + mensajes accionables con `thiserror` (lib) / `anyhow` (bin, F2). Sin I/O, testeable puro.
 * T1.1 `cli.rs: clap` exacto del contrato §4: `INPUT... [-o OUT|--output-dir DIR] [--prefix] [--suffix=_denoised] [--recursive] [--overwrite|--skip-existing] [--audio-bitrate=192] [--model-dir] [--ffmpeg-path] [--dry-run] [--json] [-v] [--version]`. `--overwrite/--skip-existing` mutuamente excluyentes. `--audio-bitrate 64-320`, si no → `E_INVALID_INPUT`.
 * T1.2 `cli.rs: expandir_entradas()`: archivos `mp4/mov/mkv/webm/avi` case-insensitive + directorios según `--recursive`, orden alfabético determinista, sin duplicados por absoluto normalizado. D6: excluir `--output-dir` si está dentro de `INPUT` + aviso `-v`. Ruta inexistente/extensión mala → registra `failed E_INVALID_INPUT`, no aborta lote.
 * T1.3 `cli.rs: resolve_output()` pura: precedencia `1) N==1 + -o exacto (crea dirs) > 2) --output-dir/<prefix><stem><suffix>.mp4 recreando árbol si --recursive > 3) junto a original`. Valida `prefix/suffix [A-Za-z0-9._-]`, no ambos vacíos si in-place. Colisión sin `--overwrite` → `E_OUTPUT_EXISTS`; con `--skip-existing` → `skipped`. D9: `-o` a la propia entrada → warning `stderr`.
@@ -46,22 +47,22 @@ Verificación: `cargo test` verde. Riesgo: ninguno (sin I/O).
 
 Objetivo: cerrar `RF-06/RF-07 + RNF-05` con `tests/test_errors.rs` parcial (sin DSP).
 
-* T2.1 `ffmpeg_io.rs: find_ffmpeg()` ← portar `../NextgenUp@16e01bb/audio_engine.py:_ffmpeg()` (Python lectura) simplificado: `--ffmpeg-path → PATH (split_paths) → E_FFMPEG_NOT_FOUND`. Exigir `ffmpeg 6+` vía `ffmpeg -version` con D11 regex `ffmpeg version (\d+)\.` major>=6. Sin `ffprobe`. Documentar receta por OS en `README.md` (Win `winget/choco`, macOS `brew`, Linux `apt`).
+* T2.1 `ffmpeg_io.rs: find_ffmpeg()` ← portar `../NextgenUp@16e01bb/audio_engine.py:_ffmpeg()` (Python lectura) simplificado: `--ffmpeg-path → crate which en PATH (E5b, PATHEXT en Win) → E_FFMPEG_NOT_FOUND`. Exigir `ffmpeg 6+` vía `ffmpeg -version` con D11 regex `ffmpeg version (\d+)\.` major>=6. Sin `ffprobe`. Documentar receta por OS en `README.md` (Win `winget/choco`, macOS `brew`, Linux `apt`).
 * T2.2 `ffmpeg_io.rs: has_audio()/probe()` ← portar `../NextgenUp@16e01bb/video_tools.py:_has_audio()` + `audio_engine.py:probe_duration()` (Python lectura): `ffmpeg -hide_banner -i`, `Audio:` en `stderr`, regex `Duration:`. Sin audio → `E_NO_AUDIO`.
 * T2.3 `ffmpeg_io.rs: extract_mono48k()/remux_copy()` ← portar `video_tools.py:clean_audio()` rama denoise (Python lectura): `ffmpeg -y -v error -i IN -vn -ac 1 -ar 48000 TMP.in.wav` y `ffmpeg -y -v error -i IN -i TMP.out.wav -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <bitrate>k -shortest OUT.mp4`. Todo `Command` argv, `from_utf8_lossy`. Error → `E_FFMPEG_FAILED`, sin parciales.
-* T2.4 `models.rs: ensure_models()` ← portar `../NextgenUp@16e01bb/model_store.py:denoise_speech` (Python lectura, solo rama): URL `.../DeepFilterNet3_onnx.tar.gz`, `7983136B>=98% + SHA256 según D2 (interino: solo tamaño+warning si TBD, tras registro SHA obligatorio)`, miembros `tmp/export/{enc,erb_dec,df_dec}.onnx → dfn3_*.onnx`, `User-Agent: Video-Noise-Remover/1.0.0`, `reqwest+rustls`, D11 `timeout 30s/retry 3`, anti `tar-slip`, chequeo disco, `.part + rename atómico`, extraer + borrar `.tar.gz`. `model-dir` defecto `~/.cache/denoise-videos/models` vía `home/dirs`. Fallo → `E_MODEL_MISSING` + URL + ruta manual. Sesiones `ort CPUExecutionProvider` cacheadas + `Mutex`.
+* T2.4 `models.rs: ensure_models()` tras trait `ModelsProvider` (E5a) ← portar `../NextgenUp@16e01bb/model_store.py:denoise_speech` (Python lectura, solo rama): URL `.../DeepFilterNet3_onnx.tar.gz`, `7983136B>=98% + SHA256 según D2 (interino: solo tamaño+warning si TBD, tras registro SHA obligatorio)`, miembros `tmp/export/{enc,erb_dec,df_dec}.onnx → dfn3_*.onnx`, `User-Agent: Video-Noise-Remover/1.0.0`, `reqwest+rustls`, D11 `timeout 30s/retry 3`, anti `tar-slip`, chequeo disco, `.part + rename` con regla E1 (F3b: Win `remove` previo), extraer + borrar `.tar.gz`. `model-dir` defecto E4a `~/.cache/denoise-videos/models` vía `home`. Fallo red/modelo → `E_MODEL_MISSING` + URL + ruta manual; fallo disco → `E_IO`. Sesiones `ort CPUExecutionProvider` cacheadas + `Mutex`.
 * T2.5 Tarea bloqueante para release (cierra `SHA256:TBD` según D2): en primera descarga con tamaño ok (`>=98%`), calcular `SHA256` real del tarball (`Get-FileHash -Algorithm SHA256` en Win / `sha256sum` en Linux/macOS) y sustituir `TBD` en `especificaciones.md RF-06/RNF-05` + `nuevo-diseño.md §7`; desde entonces SHA obligatorio. Sin este registro no hay tag `v1.0.0`.
-* T2.6 `tests/test_errors.rs` (parte 1): sin audio → `E_NO_AUDIO`, ffmpeg ausente → `E_FFMPEG_NOT_FOUND`, descarga rota → `E_MODEL_MISSING`, destino existe → `E_OUTPUT_EXISTS/skipped`, `bitrate 9999` → `E_INVALID_INPUT`. Nada parcial en disco.
+* T2.6 `tests/test_errors.rs` (parte 1): sin audio → `E_NO_AUDIO`, ffmpeg ausente → `E_FFMPEG_NOT_FOUND`, descarga rota → `E_MODEL_MISSING`, destino existe → `E_OUTPUT_EXISTS/skipped`, `bitrate 9999` → `E_INVALID_INPUT`, disco/sin permiso → `E_IO` (E6b). Nada parcial en disco.
 
-Verificación: `cargo test` verde con ffmpeg 6+ real pero sin ONNX pesado (mock `ensure_models`).
+Verificación: `cargo test` verde con ffmpeg 6+ real pero sin ONNX pesado (E5a: `FakeProvider` del trait `ModelsProvider`, sin red).
 
 ## Fase 3 — `df.rs` DSP + test dorado (corazón numérico)
 
 Objetivo: cerrar `RF-05 + RNF-04` con `tests/test_golden.rs (#[ignore])` bloqueante. Port exacto Python→Rust, cero decisiones nuevas salvo lenguaje.
 
-* T3.1 `df.rs` portar `../NextgenUp@16e01bb/audio_engine.py:183-346` (Python lectura) valores idénticos: `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/WNORM=1/(FFT²/2HOP)/ALPHA0.99/LSNR-10/30/20/CHUNK60s/OVERLAP1s`, `_erb_widths()`, `_df_constants()` (vorbis + `erb_fb/erb_inv`), framing `pad HOP + cola FFT+LOOKAHEAD*HOP`, `STFT*ventana*WNORM`, features `ERB mean-norm/40 + unit-norm compleja`, inferencia `ort enc/erb_dec/df_dec`, alineación `k+LOOKAHEAD`, `mask@erb_inv + deep-filter taps k-2..k+2 si lsnr<=20 / intacto si >30 / mute si <-10`, `iSTFT*FFT*ventana + overlap-add + recorte HOP:HOP+n + crossfade`. Firma `denoise_wav(in: &Path, out: &Path, progress: &dyn Fn(usize,usize))`, sin `Command`, solo `ndarray+rustfft+ort+hound`. D7: I/O WAV con `hound` PCM16 ↔ `f32`.
+* T3.1 `df.rs` portar `../NextgenUp@16e01bb/audio_engine.py:183-346` (Python lectura) valores idénticos: `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/WNORM=1/(FFT²/2HOP)/ALPHA0.99/LSNR-10/30/20/CHUNK60s/OVERLAP1s`, `_erb_widths()`, `_df_constants()` (vorbis + `erb_fb/erb_inv`), framing `pad HOP + cola FFT+LOOKAHEAD*HOP`, `STFT*ventana*WNORM`, features `ERB mean-norm/40 + unit-norm compleja`, inferencia `ort enc/erb_dec/df_dec`, alineación `k+LOOKAHEAD`, `mask@erb_inv + deep-filter taps k-2..k+2 si lsnr<=20 / intacto si >30 / mute si <-10`, `iSTFT*FFT*ventana + overlap-add + recorte HOP:HOP+n + crossfade`. Firma `denoise_wav(in: &Path, out: &Path, progress: &dyn Fn(usize,usize))`, sin `Command`, solo `ndarray+rustfft+ort+hound`. D7: I/O WAV con `hound` PCM16 ↔ `f32`. E6c: chequeo de cancelación cooperativa entre chunks.
 * T3.2 `tests/common/si_sdr.rs` (helper): `SI-SDR` Rust puro D11 (zero-mean, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`).
-* T3.3 `tests/data/README.md` + generador determinista (`seed 0`): seno `440Hz 3s` + ruido blanco a `SNR 10dB`, `SR 48k` mono `f32`. Guardar `voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` (generada una vez con el port validado contra `../NextgenUp@16e01bb`).
+* T3.3 `tests/data/README.md` + generador determinista E6a (`rand StdRng seed_from_u64(0)` + Box-Muller, `hound`): seno `440Hz 3s` + ruido blanco a `SNR 10dB`, `SR 48k` mono `f32`. Guardar `voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` (generada una vez con el port validado contra `../NextgenUp@16e01bb`).
 * T3.4 `tests/test_golden.rs (#[ignore])`: `denoise_wav(mezcla)` D3: `mejora >=5dB` y `paridad vs referencia >=60dB` (refs informativas `+5dB` / `20.8dB` / `~77dB`). Desviación = bug bloqueante.
 
 Verificación: `cargo test -- --ignored golden` verde en 1 máquina Win. Riesgo mayor: regresión numérica por offsets/ventana/`f32` — mitigación: no tocar valores, comparar contra `../NextgenUp@16e01bb/` salida.
@@ -70,9 +71,9 @@ Verificación: `cargo test -- --ignored golden` verde en 1 máquina Win. Riesgo 
 
 Objetivo: cerrar `RF-05/08/09 + RNF-02/03/06` con `tests/test_remux.rs + test_reporter.rs`.
 
-* T4.1 `pipeline.rs: clean_one_video()` ← portar `video_tools.py:clean_audio()` solo rama denoise (Python lectura): `expandir→validar→resolver salida→has_audio?→modelo?→colisión?→[1-5%] extract→[6-80%] df por chunks con callback (d,t)→[81-95%] remux a OUT.part.mp4→rename atómico→[96-99%] D5 verificación ligera (>0B+duración±0.5s+AAC)→limpiar temps→[100%] report (mapeo D4)`. Limpieza garantizada + borrado `.part`; con `-v` conserva temps + muestra comando exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños.
-* T4.2 Progreso/reporte en `cli.rs`: secuencial v1, un fallo no aborta (salvo `Ctrl+C` D8-Rust: `ctrlc→Child::kill`, borra parcial/temps, `exit 3`, Win `CREATE_NEW_PROCESS_GROUP`). Humano TTY: cabecera `[i/N] in → out` + 1 barra `indicatif` por video a `stderr` + línea `done|failed|skipped MB+s` + resumen `ok/failed/skipped`. Sin TTY: líneas `%` por fase. `--json`: solo `JSONL`, sin animación. Exit D9: `3` si cancelado, si no `1` si hubo fallo `1`, si no `2` si hubo fallo `2`, si no `0`.
-* T4.3 `tests/test_remux.rs (#[ignore])`: video 5s barras+tono → mismo `vcodec/res/fps`, duración `±0.2s`, `aac 48k bitrate±10%`, D10 sin re-encode por hash stream/`extradata` (no tamaño fichero).
+* T4.1 `pipeline.rs: clean_one_video()` ← portar `video_tools.py:clean_audio()` solo rama denoise (Python lectura): `expandir→validar→resolver salida→has_audio?→modelo?→colisión?→[1-5%] extract→[6-80%] df por chunks con callback (d,t)→[81-95%] remux a OUT.part.mp4→rename E1 (POSIX atómico; Win remove previo si --overwrite)→[96-99%] D5 verificación ligera (>0B+duración±0.5s+AAC)→limpiar temps→[100%] report (mapeo D4)`. Limpieza garantizada + borrado `.part`; con `-v` conserva temps + muestra comando exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños.
+* T4.2 Progreso/reporte en `cli.rs` (F2: `log + env_logger` `info`/`-v debug`, `indicatif hidden()` con `--json`/sin TTY): secuencial v1, un fallo no aborta (salvo `Ctrl+C` D8-Rust+E6c+F2: `ctrlc→Child::kill`, borra parcial/temps, `exit 3`, 2º `Ctrl+C` fuerza salida, Win `CREATE_NEW_PROCESS_GROUP`). Humano TTY: cabecera `[i/N] in → out` + 1 barra `indicatif` por video a `stderr` + línea `done|failed|skipped MB+s` + resumen `ok/failed/skipped`. Sin TTY: líneas `%` por fase. `--json`: solo `JSONL`, sin animación. Exit D9: `3` si cancelado, si no `1` si hubo fallo `1`, si no `2` si hubo fallo `2`, si no `0`.
+* T4.3 `tests/test_remux.rs (#[ignore])` E6a+F3a: fixture `ffmpeg -y -v error -f lavfi -i testsrc=size=640x480:rate=30:duration=5 -f lavfi -i sine=frequency=440:sample_rate=48000:duration=5 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k -shortest fixture.mp4` → mismo `vcodec/res/fps`, duración `±0.2s`, `aac 48k bitrate±10%`, D10 sin re-encode: `extradata` igual + `sha256` de `ffmpeg -y -v error -i OUT.mp4 -map 0:v:0 -c copy -f h264 -` idéntico al de entrada (no tamaño fichero).
 * T4.4 `tests/test_reporter.rs`: lote 3 simulado verifica orden `[1/3..3/3]`, `JSONL` parseable con `jq`, `summary` correcto, sin animación con `--json`/sin TTY.
 
 Verificación: `cargo test` + `cargo test -- --ignored remux` verdes.
@@ -96,13 +97,14 @@ Objetivo: cumplir `especificaciones.md §6` y publicar.
 | RF-07 | 2 | `test_errors (E_FFMPEG_NOT_FOUND, E_NO_AUDIO)` |
 | RF-05 | 3+4 | `test_golden (ignored)` + `test_remux (ignored)` |
 | RF-08 | 1+4 | `test_reporter` + lote 5 E2E |
-| RF-09 | 4+5 | `test_errors (Ctrl+C simulado)` + manual |
+| RF-09 | 4+5 | `test_errors (Ctrl+C simulado, E_IO)` + manual |
 | RF-10 | 1+5 | `--help/--version` manual + E2E |
 | RNF-04 | 3 | `test_golden mejora>=5dB + paridad>=60dB (D3)` bloqueante |
+| E_IO (E6b/F3b) | 2+4 | `test_errors (disco/permiso)` + E2E `§5.4` |
 
 ## Riesgos principales
 
 1. Regresión numérica DSP Python→Rust (`f32`, `rustfft`, ventanas) → mitigado por Fase 3 bloqueante + valores congelados + vectores `tests/data`.
-2. `ffmpeg` Win (`PATH`, espacios, no-latino) + `ort` dylib en Win → mitigado por Fase 2 + matriz manual Win + `cargo build` limpio.
+2. `ffmpeg` Win (`PATH`, espacios, no-latino) + `ort` dylib en Win → mitigado por Fase 2 + matriz manual Win + `ort download-binaries` (E3, sin cmake).
 3. `SHA256:TBD` → tarea T2.5 obligatoria antes de release.
 4. Alcance: sin `MDX/compress/gif/Tauri/Flask/Python` en v1 (ver §9 diseño).

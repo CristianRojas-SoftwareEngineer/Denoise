@@ -30,7 +30,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * Flags: `-o/--output OUT` (solo si N==1 y entrada es archivo), `--output-dir DIR`, `--prefix STR`, `--suffix STR (defecto `_denoised`)`.
 * Precedencia: `1) -o exacto > 2) --output-dir/<prefix><stem><suffix>.mp4 > 3) junto a original`.
 * `--recursive` + `--output-dir` recrea árbol relativo. D6 aplica exclusión si `DIR` está dentro de `INPUT`.
-* `prefix/suffix` solo caracteres `[A-Za-z0-9._-]`; vacío permitido para uno de los dos, no ambos vacíos si salida es mismo directorio que entrada (evita sobrescribirse). Regla congelada Ronda 4. Remux vía `OUT.part.mp4` + rename atómico `std::fs::rename` (con `--overwrite` reemplaza destino). D7-Rust: I/O WAV con `hound` PCM16 + `f32` (`i16→f32 /32768.0` y vuelta con clip), sin `soundfile/scipy`; `ffmpeg` produce/consume `PCM16 48k mono`.
+* `prefix/suffix` solo caracteres `[A-Za-z0-9._-]`; vacío permitido para uno de los dos, no ambos vacíos si salida es mismo directorio que entrada (evita sobrescribirse). Regla congelada Ronda 4. Remux vía `OUT.part.mp4` + rename atómico E1: en POSIX `std::fs::rename` reemplaza atómicamente; en Win con `--overwrite` se hace `remove_file(destino)` previo + `rename`, sin `--overwrite` el `rename` falla si existe (sin reemplazo). D7-Rust: I/O WAV con `hound` PCM16 + `f32` (`i16→f32 /32768.0` y vuelta con clip), sin `soundfile/scipy`; `ffmpeg` produce/consume `PCM16 48k mono`.
 * `--audio-bitrate` no afecta al nombre (ver RF-05B). D9: `-o` que resuelve a la propia entrada sin `prefix/suffix` efectivo emite warning a `stderr` aunque `--overwrite` lo permita.
 * **Aceptación:**
   * `denoise boda.mp4` → `boda_denoised.mp4`
@@ -56,8 +56,8 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ### RF-06 Modelo autocontenido on-demand
 * **ID:** RF-06. **Prioridad:** Alta.
-* Artefactos `dfn3_enc.onnx, dfn3_erb_dec.onnx, dfn3_df_dec.onnx` en `--model-dir` (defecto `~/.cache/denoise-videos/models` en Win/macOS/Linux vía crate `home`/`dirs` + `std::path::PathBuf`).
-* Si faltan → descargar tarball oficial `v0.5.6`, verificar tamaño `7983136B >=98%` + `SHA256` según regla D2: hasta T2.5 (`TBD`) solo se exige tamaño + warning visible `SHA256 pendiente de registro`; tras registrar el hash real en estos docs, `SHA256` pasa a obligatorio y el mismatch es `E_MODEL_MISSING` bloqueante; tag `v1.0.0` bloqueado hasta registrarlo (en primera descarga con tamaño ok se calcula el `SHA256` real y se sustituye en estos docs. Origen fijado `../NextgenUp@16e01bb` 2026-09-09 `model_store.py:denoise_speech`), extraer, borrar `.tar.gz`. Si la descarga falla → `E_MODEL_MISSING` + URL + ruta manual esperada.
+* Artefactos `dfn3_enc.onnx, dfn3_erb_dec.onnx, dfn3_df_dec.onnx` en `--model-dir` (defecto E4a `~/.cache/denoise-videos/models` en Win/macOS/Linux vía `home_dir()+.cache` con `PathBuf`; sin `LOCALAPPDATA` ni `Library/Caches`).
+* Si faltan → descargar tarball oficial `v0.5.6` E6c: `timeout 30s + retry 3 con backoff + chequeo espacio disco + anti tar-slip (allowlist `tmp/export/{enc,erb_dec,df_dec}.onnx`)`, verificar tamaño `7983136B >=98%` + `SHA256` según regla D2: hasta T2.5 (`TBD`) solo se exige tamaño + warning visible `SHA256 pendiente de registro`; tras registrar el hash real en estos docs, `SHA256` pasa a obligatorio y el mismatch es `E_MODEL_MISSING` bloqueante; tag `v1.0.0` bloqueado hasta registrarlo (en primera descarga con tamaño ok se calcula el `SHA256` real y se sustituye en estos docs. Origen fijado `../NextgenUp@16e01bb` 2026-09-09 `model_store.py:denoise_speech`), extraer, borrar `.tar.gz`. Si la descarga falla → `E_MODEL_MISSING` + URL + ruta manual esperada. Fallos de disco/red/permiso en descarga → `E_IO` (E6b).
 * **Aceptación:** primera corrida descarga una vez (~8MB); segunda offline funciona; corrupto/incompleto reintenta con error legible.
 
 ### RF-07 Pre-chequeos ffmpeg y audio
@@ -71,30 +71,28 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * **ID:** RF-08. **Prioridad:** Media.
 * Procesamiento secuencial v1; un fallo no aborta lote (salvo `Ctrl+C`). Resumen final `ok=N failed=N skipped=N`.
 * `--dry-run`: solo lista `input → output` sin tocar disco IA, en el mismo orden del lote real. Con `--dry-run --json` emite la misma tabla en `JSONL` con `status="dry-run"` y `pct=0`, sin crear nada.
-* Humano: cabecera `[i/N]`, una barra viva por video a `stderr` (`indicatif`), línea final por video con `MB + segundos`, resumen final. Sin TTY: líneas de porcentaje sin animación. Orden estricto, flush explícito tras cada línea. Mapeo pct D4 congelado: `0 inicio/colisión-check, 1-5 extract, 6-80 denoise por chunks (d/t), 81-95 remux, 96-99 verificar+limpiar, 100 ok/failed/skipped`.
+* Humano: cabecera `[i/N]`, una barra viva por video a `stderr` (`indicatif`; F2: `ProgressDrawTarget::hidden()` con `--json` o sin TTY), línea final por video con `MB + segundos`, resumen final. Sin TTY: líneas de porcentaje sin animación. Orden estricto, flush explícito tras cada línea. Mapeo pct D4 congelado: `0 inicio/colisión-check, 1-5 extract, 6-80 denoise por chunks (d/t), 81-95 remux, 96-99 verificar+limpiar, 100 ok/failed/skipped`.
 * `--json`: desactiva animación; `stdout` en `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (contrato congelado Ronda 3 + D4: `status ∈ {ok,failed,skipped,dry-run}`, `pct 0-100` según mapeo, `summary` sin `pct`). Sin `--json`: salida humana a `stderr`.
 * **Aceptación:** lote 5 con 1 corrupto → 4 ok + 1 failed, exit `!=0`, JSON parseable; en modo humano el proceso muestra avance por video sin quedarse silencioso >2s.
 
 ### RF-09 Temporales, cancelación y limpieza
 * **ID:** RF-09. **Prioridad:** Media.
 * Temps `<out>.tmp.in/out.wav` junto a la salida. Limpieza garantizada en todos los caminos (guardia `Drop`/limpieza explícita); con `-v` se conservan para debug.
-* `Ctrl+C` D8-Rust: handler `ctrlc` + flag atómico → `Child::kill` al hijo `ffmpeg`/cierre de inferencia, borra parcial y temps, exit 3. En Win crear hijo con `CREATE_NEW_PROCESS_GROUP` para terminación limpia; en POSIX grupo por defecto. Comportamiento observable único Win/POSIX.
+* `Ctrl+C` D8-Rust + E6c + F2: handler `ctrlc` + flag atómico → `Child::kill` al hijo `ffmpeg`/cierre de inferencia, borra parcial y temps, exit 3. 2º `Ctrl+C` fuerza salida inmediata exit 3 aunque quede limpieza. Inferencia `ort` cancelable cooperativamente entre chunks (latencia máx 1 chunk en curso). En Win crear hijo con `CREATE_NEW_PROCESS_GROUP` para terminación limpia; en POSIX grupo por defecto. Comportamiento observable único Win/POSIX. E6b: disco lleno/sin permiso al escribir salida/temps → `E_IO`.
 * **Aceptación:** interrumpir a mitad no deja `.mp4` parcial ni `.wav`.
 
 ### RF-10 Ayuda, versión y verbosidad
 * **ID:** RF-10. **Prioridad:** Media.
 * `--help` documenta todos los flags con ejemplos; `--version` imprime `denoise-videos 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` — formato exacto congelado Ronda 3 — (fuente única `Cargo.toml [package] version="1.0.0"` leída vía `env!("CARGO_PKG_VERSION")`, Decisión D1-Rust); `-v` debug (comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños).
-* Niveles: defecto `info` (fases), `-v` `debug`. Sin nivel silencioso separado: `--json` ya es apto para scripting.
+* Niveles F2: defecto `info` (fases), `-v` `debug` vía `log + env_logger`. Sin nivel silencioso separado: `--json` ya es apto para scripting.
 * **Aceptación:** `denoise --help` es suficiente para usar sin leer este doc; `-v` permite reproducir manualmente cada `ffmpeg`.
 
 ## 3. Requerimientos no funcionales
 
 ### RNF-01 Autocontención
-* Todo vive en este repo (`Video-Noise-Remover/` raíz). Python (`../NextgenUp@16e01bb/`) solo es referencia de lectura para portar, nunca runtime ni dependencia. Stack V1 Rust (congelado): `Rust stable 1.75+ edition 2021 + ort + ndarray + rustfft + hound + clap 4 + indicatif + reqwest (rustls) + sha2 + flate2 + tar + home/dirs + ctrlc + anyhow/thiserror + serde_json` + binario `ffmpeg 6+`. Toolchain: `cargo + clippy + rustfmt` (ver `plan.md T0.3`). V1 es implementación íntegra en Rust, sin V2 posterior.
+* Todo vive en este repo (`Video-Noise-Remover/` raíz). Python (`../NextgenUp@16e01bb/`) solo es referencia de lectura para portar, nunca runtime ni dependencia. Stack V1 Rust (congelado, E4b+E5b+F1+F2): `Rust stable 1.75+ (`rust-version="1.75"`, `edition="2021"`) + ort 2 (feature download-binaries, E3) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (rustls) + sha2 + flate2 + tar + home + which (PATHEXT Win) + ctrlc + anyhow (bin) / thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger` + `rand 0.8` solo `dev-dependency` para fixtures + binario `ffmpeg 6+`. `Cargo.lock` cometido; `[profile.release] opt-level=3, strip=true`. Toolchain: `cargo + clippy + rustfmt` (ver `plan.md T0.3`). V1 es implementación íntegra en Rust, sin V2 posterior.
 * Estilo: `std::path::PathBuf`, `clippy+rustfmt`, `std::process::Command` con argv sin shell, `String::from_utf8_lossy`, ASCII seguro en `pwsh`.
-* **Verificación:** `cargo build --release` + `./target/release/denoise --help` funciona con este repo copiado a otra máquina con toolchain Rust + `ffmpeg 6+`.
-* Estilo: `std::path::PathBuf`, `clippy+rustfmt`, `std::process::Command` con argv sin shell, `String::from_utf8_lossy`.
-* **Verificación:** `cargo build --release` + `./target/release/denoise --help` funciona con este repo copiado a otra máquina con toolchain Rust.
+* **Verificación:** `cargo build --release` (con `ort download-binaries`, sin cmake ni runtime del sistema) + `./target/release/denoise --help` funciona con este repo copiado a otra máquina con toolchain Rust + `ffmpeg 6+`.
 
 ### RNF-02 Portabilidad
 * `Windows 10+ / macOS 13+ / Linux x64`. Rutas con espacios y no-latinas. Hijos `ffmpeg` siempre con `String::from_utf8_lossy`. Sin `NUL` vs `/dev/null` hardcodeado.
@@ -105,17 +103,17 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * No re-encode de video → tiempo dominado por DFN3 + remux ligero. Telemetría en `-v` (segundos por fase), sin objetivo contractual.
 
 ### RNF-04 Fiabilidad numérica
-* Constantes DSP congeladas (ver `nuevo-diseño.md §6`: `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/ALPHA0.99/LSNR-10/30/20`). Test dorado obligatorio y bloqueante antes de release con `SI-SDR` en Rust puro en `tests/common/si_sdr.rs` (D11: zero-mean por señal, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`) y vectores deterministas en `tests/data/` (seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32`: `voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav`; Decisión D3: asserts `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` Y `SI-SDR(denoised,referencia) >=60dB`; valores `20.8dB` pipeline oficial / `~77dB` paridad bit-exacta solo informativos). Desviación bajo umbrales = bloqueante. Origen DSP fijado `../NextgenUp@16e01bb` (`audio_engine.py:183-346`, Python solo lectura); tras el port manda el test dorado.
+* Constantes DSP congeladas (ver `nuevo-diseño.md §6`: `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/ALPHA0.99/LSNR-10/30/20`). Test dorado obligatorio y bloqueante antes de release con `SI-SDR` en Rust puro en `tests/common/si_sdr.rs` (D11: zero-mean por señal, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`) y vectores deterministas en `tests/data/` E6a (generador Rust con `rand StdRng seed 0` + Box-Muller, seno `440Hz 3s` + ruido blanco `SNR 10dB`, `SR 48k` mono `f32`: `voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav`; Decisión D3: asserts `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` Y `SI-SDR(denoised,referencia) >=60dB`; valores `20.8dB` pipeline oficial / `~77dB` paridad bit-exacta solo informativos). Desviación bajo umbrales = bloqueante. Origen DSP fijado `../NextgenUp@16e01bb` (`audio_engine.py:183-346`, Python solo lectura); tras el port manda el test dorado.
 
 ### RNF-05 Seguridad
 * Sin red salvo descarga modelo desde origen fijo único (`github.com/Rikorose/DeepFilterNet v0.5.6`, sin HuggingFace en v1). Sin ejecución de nombres de archivo como shell (`Command` con argv, sin shell). `-o` fuera del cwd permitido pero se advierte si sobreescribe entrada sin `prefix/suffix`.
 * Modelos verificados por tamaño `7983136B >=98%` + `SHA256` según D2 (interino solo tamaño+warning, tras registro obligatorio bloqueante para `v1.0.0`); nunca se ejecuta código descargado salvo `.onnx` vía `ort`.
 
 ### RNF-06 Usabilidad y scripting
-* Mensajes de error accionables (`qué pasó + qué hacer`). Exit codes estables: `0 ok/skip, 1 ffmpeg/modelo, 2 entrada/salida, 3 cancelado`. D9: batch mixto con fallos `1` y `2` → exit `1` (prioridad `1>2`, `3` siempre gana si hubo cancelación). `--json` estable para `jq`. D9: `--version` sin `ffmpeg` imprime `ffmpeg missing` en lugar de fallar.
+* Mensajes de error accionables (`qué pasó + qué hacer`). Exit codes estables: `0 ok/skip, 1 ffmpeg/modelo/IO, 2 entrada/salida, 3 cancelado`. E6b nuevo `E_IO → 1`: disco lleno, sin permiso escritura, sin espacio en descarga, `-o` no creable. D9: batch mixto con fallos `1` y `2` → exit `1` (prioridad `1>2`, `3` siempre gana si hubo cancelación). `--json` estable para `jq`. D9: `--version` sin `ffmpeg` imprime `ffmpeg missing` en lugar de fallar.
 
 ### RNF-07 Mantenibilidad y test
-* Módulos <300 líneas c/u, funciones puras donde sea posible (`resolve_output()` en `cli.rs` testeable sin ffmpeg). `tests/test_naming.rs` sin red ni modelo; `test_golden/test_remux` marcados `#[ignore]` (slow).
+* Módulos <300 líneas c/u, funciones puras donde sea posible (`resolve_output()` en `cli.rs` vía `lib.rs` testeable sin ffmpeg). `tests/test_naming.rs` sin red ni modelo; `test_golden/test_remux` marcados `#[ignore]` (slow).
 * Comandos: `cargo test` (rápido) y `cargo test -- --ignored` (dorado+e2e). Sin warnings de `clippy`.
 
 ### RNF-08 Licencias y atribución
@@ -142,7 +140,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 1. Video vertical/teléfono, 4K, `mkv` con múltiples audios → se usa `0:v:0` + primera pista a mono; resto de pistas/subs se pierden (limitación v1 confirmada Ronda 4, documentada en `--help` y `README.md`).
 2. Nombre con espacios/acentos/emoji + ruta >150 caracteres en Win.
 3. Video sin audio, imagen renombrada a `.mp4`, archivo `0B`, `bitrate` fuera de rango.
-4. Salida en disco distinto / sin permiso escritura / `-o` a carpeta inexistente (debe crearla) vs `-o` con `N>1` (debe fallar).
+4. Salida en disco distinto / sin permiso escritura (`E_IO`) / `-o` a carpeta inexistente (debe crearla, si no creable → `E_IO`) vs `-o` con `N>1` (debe fallar `E_INVALID_INPUT`).
 5. Lote con mezcla de ok + sin-audio + colisión existente + 1 ruta inexistente.
 6. Corte `Ctrl+C` durante `extract`, durante `inferencia chunk 3/7`, durante `remux` → exit 3, sin `.part` ni `.wav`.
 
