@@ -26,14 +26,14 @@ El procesamiento de video se realiza mediante copia directa de flujo (*stream co
 
 ```mermaid
 flowchart LR
-    A[Video Original\nMP4 / MOV / MKV] --> B[FFmpeg Demux\nPCM 48kHz Mono]
-    B --> C[STFT\nVentana Vorbis 960]
-    C --> D[DeepFilterNet3 ONNX\nEncoder + ERB + DF Decoders]
-    D --> E[iSTFT Overlap-Add\nSíntesis 48kHz]
-    E --> F[Normalización\nPeak a -1.0 dBFS]
-    F --> G[FFmpeg Remux\nAAC + Video Copy]
-    A -. Video Stream .- -> G
-    G --> H[Video Procesado\nAudio Limpio]
+    A["Video Original<br/>(MP4 / MOV / MKV)"] --> B["FFmpeg Demux<br/>(PCM 48kHz Mono)"]
+    B --> C["STFT<br/>(Ventana Vorbis 960)"]
+    C --> D["DeepFilterNet3 ONNX<br/>(Encoder + Decoders)"]
+    D --> E["iSTFT Overlap-Add<br/>(Síntesis 48kHz)"]
+    E --> F["Normalización<br/>(Peak -1.0 dBFS)"]
+    F --> G["FFmpeg Remux<br/>(AAC + Video Copy)"]
+    A -.->|Video Stream copy| G
+    G --> H["Video Procesado<br/>(Audio Limpio)"]
 ```
 
 ---
