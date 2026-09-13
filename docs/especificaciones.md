@@ -1,6 +1,6 @@
 # Especificaciones — CLI `denoise-videos` v1 Rust (autocontenida en este repo)
 
-> Este documento junto a `docs/nuevo-diseño.md` forma el contrato canónico.
+> Este documento junto a `docs/diseño.md` forma el contrato canónico.
 > Convención de rutas: `docs/<fichero>` es relativo a la raíz del repo.
 > Idioma CLI y mensajes: inglés técnico para flags/ayuda, este documento en español.
 > Convención: `INPUT...` = 1..N rutas; `stem` = nombre sin extensión; salida siempre `.mp4`.
@@ -22,15 +22,17 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * Si `INPUT` es directorio: expande a videos `mp4/mov/mkv/webm/avi` según `--recursive`.
 * Orden determinista (alfabético). Sin duplicados tras expandir (por path absoluto normalizado, case-insensitive en Win).
 * Si `--output-dir` está dentro de un `INPUT` directorio con `--recursive`, sus contenidos se excluyen del escaneo y se avisa en `-v`; evita loop infinito en re-corridas.
+* (D4 cerrado) En escaneo con `--recursive` se excluyen además los ficheros que ya terminan en `<suffix>.mp4` vigente (por defecto `*_denoised.mp4`) y se avisa en `-v`; evita generar `*_denoised_denoised.mp4` en re-corridas in-place.
 * **Aceptación:** `denoise ./crudos/ --recursive` procesa incluyendo subcarpetas, en orden estable.
 
 ### RF-03 Salida parametrizable: archivo, directorio, prefijo, sufijo
 * **ID:** RF-03. **Prioridad:** Alta.
 * Flags: `-o/--output OUT` (solo si N==1 y entrada es archivo), `--output-dir DIR`, `--prefix STR`, `--suffix STR (defecto `_denoised`)`.
-* Precedencia: `1) -o exacto > 2) --output-dir/<prefix><stem><suffix>.mp4 > 3) junto a original`.
+* Precedencia: `1) -o/--output exacto > 2) --output-dir/<prefix><stem><suffix>.mp4 > 3) junto a original`.
+* (D7 cerrado) Se crean directorios padre automáticamente para `-o/--output`, `--output-dir` y `--model-dir`; si no creables → `E_IO`.
 * `--recursive` + `--output-dir` recrea árbol relativo. La exclusión aplica si `DIR` está dentro de `INPUT`.
 * `prefix/suffix` solo caracteres `[A-Za-z0-9._-]`; vacío permitido para uno de los dos, no ambos vacíos si salida es mismo directorio que entrada (evita sobrescribirse). Remux vía `OUT.part.mp4` + rename atómico: en POSIX `std::fs::rename` reemplaza atómicamente; en Win con `--overwrite` se hace `remove_file(destino)` previo + `rename`, sin `--overwrite` el `rename` falla si existe (sin reemplazo). I/O WAV con `hound` PCM16 + `f32` (`i16→f32 /32768.0` y vuelta con clip); `ffmpeg` produce/consume `PCM16 48k mono`.
-* `--audio-bitrate` no afecta al nombre (ver RF-05B). `-o` que resuelve a la propia entrada sin `prefix/suffix` efectivo emite warning a `stderr` aunque `--overwrite` lo permita.
+* `--audio-bitrate` no afecta al nombre (ver RF-05B). `-o/--output` que resuelve a la propia entrada sin `prefix/suffix` efectivo emite warning a `stderr` aunque `--overwrite` lo permita.
 * **Aceptación:**
   * `denoise boda.mp4` → `boda_denoised.mp4`
   * `denoise boda.mp4 --prefix pod- --suffix _clean` → `pod-boda_clean.mp4`
@@ -44,7 +46,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ### RF-05 Denoise de pista de audio (única transformación IA)
 * **ID:** RF-05. **Prioridad:** Alta.
-* Extraer con `ffmpeg -vn -ac 1 -ar 48000`, inferir DeepFilterNet3 3-grafos en CPU, remezclar.
+* Extraer con `ffmpeg -vn -map 0:a:0 -ac 1 -ar 48000` (D3 cerrado: `-map 0:a:0` obligatorio para fijar primera pista en multi-audio), inferir DeepFilterNet3 3-grafos en CPU, remezclar.
 * Video: `-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <audio-bitrate>k -shortest`.
 * **Aceptación:** salida conserva `codec/res/fps` originales, duración `±0.2s`, audio `aac 48k` al bitrate pedido; mejora audible/SI-SDR en test dorado. Verificación runtime ligera: `OUT existe >0B + duración ±0.5s vía ffmpeg -i + presencia stream Audio AAC`; verificación estricta `±0.2s/bitrate±10%` solo en `test_remux`.
 
@@ -55,24 +57,24 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ### RF-06 Modelo autocontenido on-demand
 * **ID:** RF-06. **Prioridad:** Alta.
-* Artefactos `dfn3_enc.onnx, dfn3_erb_dec.onnx, dfn3_df_dec.onnx` en `--model-dir` (defecto `~/.cache/denoise-videos/models` en Win/macOS/Linux vía `home_dir()+.cache` con `PathBuf`; sin `LOCALAPPDATA` ni `Library/Caches`).
-* Si faltan → descargar tarball oficial `v0.5.6`: `timeout 30s + retry 3 con backoff + chequeo espacio disco + anti tar-slip (allowlist `tmp/export/{enc,erb_dec,df_dec}.onnx`)`, verificar tamaño `7983136B >=98%` + `SHA256` registrado en este documento y en `docs/nuevo-diseño.md §7` (el mismatch es `E_MODEL_MISSING` bloqueante), extraer, borrar `.tar.gz`. Valor `SHA256`: pendiente de registrar en la primera descarga verificada con tamaño ok (calcular con `Get-FileHash -Algorithm SHA256` en Win / `sha256sum` en Linux/macOS y anotarlo aquí y en `§7`); sin ese registro no hay tag `v1.0.0`. Si la descarga falla → `E_MODEL_MISSING` + URL + ruta manual esperada. Fallos de disco/red/permiso en descarga → `E_IO`.
+* Artefactos `dfn3_enc.onnx, dfn3_erb_dec.onnx, dfn3_df_dec.onnx` en `--model-dir` (defecto `~/.cache/denoise-videos/models` en Win/macOS/Linux vía `home_dir()+.cache` con `PathBuf`; sin `LOCALAPPDATA` ni `Library/Caches`) (D8 cerrado: se mantiene `~/.cache` en las 3 OS por simplicidad).
+* Si faltan → descargar tarball oficial `v0.5.6` (D2 cerrado: URL candidata `https://github.com/Rikorose/DeepFilterNet/raw/v0.5.6/models/DeepFilterNet3_onnx.tar.gz`, verificación previa obligatoria en `docs/plan.md T2.0`; si 404 se canoniza `releases/download` y se actualizan los 3 docs): `timeout 30s + retry 3 con backoff + chequeo espacio disco + anti tar-slip (allowlist `tmp/export/{enc,erb_dec,df_dec}.onnx`)`, verificar tamaño `7983136B >=98%` + `SHA256` registrado en este documento y en `docs/diseño.md §7` (el mismatch es `E_MODEL_MISSING` bloqueante), extraer, borrar `.tar.gz`. Valor `SHA256`: pendiente de registrar en la primera descarga verificada con tamaño ok (calcular con `Get-FileHash -Algorithm SHA256` en Win / `sha256sum` en Linux/macOS y anotarlo aquí y en `§7`); sin ese registro no hay tag `v1.0.0` (D1 cerrado: política interina = solo tamaño + warning visible; tras registro SHA obligatorio). Si la descarga falla → `E_MODEL_MISSING` + URL + ruta manual esperada. Fallos de disco/red/permiso en descarga → `E_IO`.
 * **Aceptación:** primera corrida descarga una vez (~8MB); segunda offline funciona; corrupto/incompleto reintenta con error legible.
 
 ### RF-07 Pre-chequeos ffmpeg y audio
 * **ID:** RF-07. **Prioridad:** Alta.
 * Resolver ffmpeg vía `--ffmpeg-path` o `PATH`; si ausente → `E_FFMPEG_NOT_FOUND`. Requiere `ffmpeg 6+` (verificado con `ffmpeg -version`), sin `ffprobe`.
 * Receta instalación documentada en `README.md`: Win `winget install Gyan.FFmpeg` / `choco install ffmpeg`, macOS `brew install ffmpeg`, Linux `apt install ffmpeg` (verificar `ffmpeg -version` muestra `6+`).
-* `has_audio` y duración vía `ffmpeg -hide_banner -i`; sin audio → `E_NO_AUDIO`, sin salida.
+* `has_audio` y duración vía `ffmpeg -hide_banner -i`; sin audio → `E_NO_AUDIO`, sin salida. (D6 cerrado) Solo-video sin `Audio:` → `E_NO_AUDIO`; solo-audio/imagen renombrada a `.mp4`/corrupto que falla en probe → `E_INVALID_INPUT`; `E_FFMPEG_FAILED` solo si `ffmpeg` falla en `extract/remux`.
 * **Aceptación:** video sin audio, ffmpeg ausente y entrada corrupta reportan códigos distintos y no dejan parciales.
 
 ### RF-08 Lote robusto, dry-run, resumen JSON/humano
 * **ID:** RF-08. **Prioridad:** Media.
 * Procesamiento secuencial; un fallo no aborta lote (salvo `Ctrl+C`). Resumen final `ok=N failed=N skipped=N`.
-* `--dry-run`: solo lista `input → output` sin tocar disco IA, en el mismo orden del lote real. Con `--dry-run --json` emite la misma tabla en `JSONL` con `status="dry-run"` y `pct=0`, sin crear nada.
+* `--dry-run`: solo lista `input → output` sin tocar disco IA, en el mismo orden del lote real. (D5 cerrado) Exit `0` siempre en `--dry-run`; colisiones/inválidos se reportan en `message`/`summary` sin crear nada. Con `--dry-run --json` emite la misma tabla en `JSONL` con `status="dry-run"` y `pct=0`, sin crear nada.
 * Humano: cabecera `[i/N]`, una barra viva por video a `stderr` (`indicatif`; `ProgressDrawTarget::hidden()` con `--json` o sin TTY), línea final por video con `MB + segundos`, resumen final. Sin TTY: líneas de porcentaje sin animación. Orden estricto, flush explícito tras cada línea. Mapeo `pct`: `0 inicio/colisión-check, 1-5 extract, 6-80 denoise por chunks (d/t), 81-95 remux, 96-99 verificar+limpiar, 100 ok/failed/skipped`.
 * `--json`: desactiva animación; `stdout` en `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct 0-100` según mapeo, `summary` sin `pct`). Sin `--json`: salida humana a `stderr`.
-* **Aceptación:** lote 5 con 1 corrupto → 4 ok + 1 failed, exit `!=0`, JSON parseable; en modo humano el proceso muestra avance por video sin quedarse silencioso >2s.
+* **Aceptación:** corrida real lote 5 con 1 corrupto → 4 ok + 1 failed, exit `!=0`, JSON parseable; `--dry-run` del mismo lote → exit `0` con `status="dry-run"`; en modo humano el proceso muestra avance por video sin quedarse silencioso >2s.
 
 ### RF-09 Temporales, cancelación y limpieza
 * **ID:** RF-09. **Prioridad:** Media.
@@ -89,7 +91,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 ## 3. Requerimientos no funcionales
 
 ### RNF-01 Autocontención
-* Todo vive en este repo (`Video-Noise-Remover/` raíz). Sin runtime Python. Stack Rust: `Rust stable 1.88+ (`rust-version="1.88"`, `edition="2021"`, MSRV 1.88 exigido por `ort 2`) + ort 2 (feature download-binaries) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (rustls) + sha2 + flate2 + tar + home + which (PATHEXT Win) + ctrlc + anyhow (bin) / thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger` + `rand 0.8` solo `dev-dependency` para fixtures + binario `ffmpeg 6+`. `Cargo.lock` cometido; `[profile.release] opt-level=3, strip=true`. Toolchain: `cargo + clippy + rustfmt` (ver `docs/plan.md T0.3`). Implementación íntegra en Rust.
+* Todo vive en este repo (`Video-Noise-Remover/` raíz). Sin runtime Python. Stack Rust: `Rust stable 1.88+ (`rust-version="1.88"`, `edition="2021"`, MSRV 1.88 exigido por `ort 2`) + ort 2 (feature download-binaries) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (rustls) + sha2 + flate2 + tar + home + which (PATHEXT Win) + ctrlc + anyhow (bin) / thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger` + `rand 0.8` solo `dev-dependency` para fixtures + binario `ffmpeg 6+`. `Cargo.lock` versionado en git; `[profile.release] opt-level=3, strip=true`. Toolchain: `cargo + clippy + rustfmt` (ver `docs/plan.md T0.3`, detalle de features autoritativo). Implementación íntegra en Rust.
 * Estilo: `std::path::PathBuf`, `clippy+rustfmt`, `std::process::Command` con argv sin shell, `String::from_utf8_lossy`, ASCII seguro en `pwsh`.
 * **Verificación:** `cargo build --release` (con `ort download-binaries`, sin cmake ni runtime del sistema) + `./target/release/denoise --help` funciona con este repo copiado a otra máquina con toolchain Rust + `ffmpeg 6+`.
 
@@ -102,14 +104,14 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * No re-encode de video → tiempo dominado por DFN3 + remux ligero. Telemetría en `-v` (segundos por fase), sin objetivo contractual.
 
 ### RNF-04 Fiabilidad numérica
-* Constantes DSP (ver `docs/nuevo-diseño.md §6`: `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/ALPHA0.99/LSNR-10/30/20`). Test dorado obligatorio y bloqueante antes de release con `SI-SDR` en Rust puro en `tests/common/si_sdr.rs` (zero-mean por señal, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`) y vectores deterministas en `tests/data/` (generador Rust con `rand StdRng seed 0` + Box-Muller, seno `440Hz 3s` + ruido blanco `SNR 10dB`, `SR 48k` mono `f32`: `voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav`; asserts `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` Y `SI-SDR(denoised,referencia) >=60dB`; valores `20.8dB` pipeline oficial / `~77dB` paridad bit-exacta solo informativos). Desviación bajo umbrales = bloqueante.
+* Constantes DSP (ver `docs/diseño.md §6`: `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/ALPHA0.99/LSNR-10/30/20`). Test dorado obligatorio y bloqueante antes de release con `SI-SDR` en Rust puro en `tests/common/si_sdr.rs` (zero-mean por señal, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`) y vectores deterministas en `tests/data/` (generador Rust con `rand StdRng seed 0` + Box-Muller, seno `440Hz 3s` + ruido blanco `SNR 10dB`, `SR 48k` mono `f32`: `voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav`; asserts `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` Y `SI-SDR(denoised,referencia) >=60dB`; valores `20.8dB` pipeline oficial / `~77dB` paridad bit-exacta solo informativos). Desviación bajo umbrales = bloqueante (D9 cerrado: estricto, 55-59dB también bloquea e impone investigar ventana/`WNORM` sin relajar spec).
 
 ### RNF-05 Seguridad
 * Sin red salvo descarga modelo desde origen fijo único (`github.com/Rikorose/DeepFilterNet v0.5.6`, sin HuggingFace en v1). Sin ejecución de nombres de archivo como shell (`Command` con argv, sin shell). `-o` fuera del cwd permitido pero se advierte si sobreescribe entrada sin `prefix/suffix`.
-* Modelos verificados por tamaño `7983136B >=98%` + `SHA256` registrado en RF-06 y en `docs/nuevo-diseño.md §7` (mientras esté pendiente: solo tamaño + warning visible; tras registro SHA obligatorio; mismatch → `E_MODEL_MISSING` bloqueante para `v1.0.0`); nunca se ejecuta código descargado salvo `.onnx` vía `ort`.
+* Modelos verificados por tamaño `7983136B >=98%` + `SHA256` registrado en RF-06 y en `docs/diseño.md §7` (D1 cerrado: mientras esté pendiente solo tamaño + warning visible; tras registro SHA obligatorio; mismatch → `E_MODEL_MISSING` bloqueante para `v1.0.0`); nunca se ejecuta código descargado salvo `.onnx` vía `ort`.
 
 ### RNF-06 Usabilidad y scripting
-* Mensajes de error accionables (`qué pasó + qué hacer`). Exit codes estables: `0 ok/skip, 1 ffmpeg/modelo/IO, 2 entrada/salida, 3 cancelado`. `E_IO → 1`: disco lleno, sin permiso escritura, sin espacio en descarga, `-o` no creable. Batch mixto con fallos `1` y `2` → exit `1` (prioridad `1>2`, `3` siempre gana si hubo cancelación). `--json` estable para `jq`. `--version` sin `ffmpeg` imprime `ffmpeg missing` en lugar de fallar.
+* Mensajes de error accionables (`qué pasó + qué hacer`). Exit codes estables: `0 ok/skip, 1 ffmpeg/modelo/IO, 2 entrada/salida, 3 cancelado`. `E_IO → 1`: disco lleno, sin permiso escritura, sin espacio en descarga, `-o/--output`/`--output-dir`/`--model-dir` no creables. Batch mixto con fallos `1` y `2` → exit `1` (prioridad `1>2`, `3` siempre gana si hubo cancelación). `--json` estable para `jq`. `--version` sin `ffmpeg` imprime `ffmpeg missing` en lugar de fallar. (D5 cerrado) `--dry-run` siempre exit `0`.
 
 ### RNF-07 Mantenibilidad y test
 * Módulos <300 líneas c/u, funciones puras donde sea posible (`resolve_output()` en `cli.rs` vía `lib.rs` testeable sin ffmpeg). `tests/test_naming.rs` sin red ni modelo; `test_golden/test_remux` marcados `#[ignore]` (slow).
@@ -119,14 +121,14 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * Código nuevo: `MIT` (`LICENSE` en raíz, `version="1.0.0"` en `Cargo.toml`). Modelo DeepFilterNet3: `MIT © Rikorose/DeepFilterNet` — mantener aviso y enlace en `README.md` y `--version`. `ffmpeg` externo `GPL/LGPL` — no se vende empaquetado sin revisar.
 
 ### RNF-09 Documentación
-* `README.md` mínimo: instalación, 3 ejemplos (`1 archivo`, `lote --output-dir`, `--dry-run+--json`), limitaciones (mono, primera pista, secuencial), atribución `MIT © Rikorose/DeepFilterNet`. `--help` idéntico al contrato `docs/nuevo-diseño.md §4`. `CHANGELOG.md` por release con versión de `Cargo.toml` (inicial `1.0.0`). `LICENSE` MIT en raíz.
+* `README.md` mínimo: instalación, 3 ejemplos idénticos a `docs/diseño.md §4` (`1 archivo`, `1 archivo con prefix/suffix/bitrate`, `lote --recursive --output-dir --skip-existing --json`), limitaciones (mono, primera pista, secuencial), atribución `MIT © Rikorose/DeepFilterNet`. `--help` idéntico al contrato `docs/diseño.md §4`. `CHANGELOG.md` por release con versión de `Cargo.toml` (inicial `1.0.0`). `LICENSE` MIT en raíz.
 
 ## 4. Matriz flags ↔ RF (resumen)
 
 | Flag | RF |
 |---|---|
 | `INPUT..., --recursive` | RF-01, RF-02 |
-| `-o, --output-dir, --prefix, --suffix` | RF-03 |
+| `-o/--output, --output-dir, --prefix, --suffix` | RF-03 |
 | `--overwrite, --skip-existing` | RF-04 |
 | (pipeline interno) | RF-05 |
 | `--audio-bitrate` | RF-05B |
@@ -136,10 +138,10 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ## 5. Casos borde obligatorios
 
-1. Video vertical/teléfono, 4K, `mkv` con múltiples audios → se usa `0:v:0` + primera pista a mono; resto de pistas/subs se pierden (limitación documentada en `--help` y `README.md`).
+1. Video vertical/teléfono, 4K, `mkv` con múltiples audios → se usa `0:v:0` + primera pista a mono vía `-map 0:a:0` (D3); resto de pistas/subs se pierden (limitación documentada en `--help` y `README.md`).
 2. Nombre con espacios/acentos/emoji + ruta >150 caracteres en Win.
-3. Video sin audio, imagen renombrada a `.mp4`, archivo `0B`, `bitrate` fuera de rango.
-4. Salida en disco distinto / sin permiso escritura (`E_IO`) / `-o` a carpeta inexistente (debe crearla, si no creable → `E_IO`) vs `-o` con `N>1` (debe fallar `E_INVALID_INPUT`).
+3. Video sin audio/solo-video → `E_NO_AUDIO`, imagen renombrada a `.mp4`/solo-audio/corrupto en probe → `E_INVALID_INPUT` (D6), archivo `0B`, `bitrate` fuera de rango.
+4. Salida en disco distinto / sin permiso escritura (`E_IO`) / `-o/--output`, `--output-dir`, `--model-dir` a carpeta inexistente (debe crearla, si no creable → `E_IO`, D7) vs `-o` con `N>1` (debe fallar `E_INVALID_INPUT`).
 5. Lote con mezcla de ok + sin-audio + colisión existente + 1 ruta inexistente.
 6. Corte `Ctrl+C` durante `extract`, durante `inferencia chunk 3/7`, durante `remux` → exit 3, sin `.part` ni `.wav`.
 
@@ -147,10 +149,10 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 * [ ] `denoise 1.mp4` y `denoise dir/ --recursive --output-dir out/ --suffix _clean` funcionan offline tras primera descarga.
 * [ ] `cargo test` en verde + `cargo test -- --ignored` (`test_golden/test_remux`) en verde en 1 máquina Win.
-* [ ] `--dry-run` y `--json` verificados en lote 5 con 1 fallo inducido; progreso humano muestra `[i/N]` por video.
+* [ ] Corrida real `--json` en lote 5 con 1 fallo inducido → exit `!=0` y JSON parseable; `--dry-run` del mismo lote → exit `0`; progreso humano muestra `[i/N]` por video.
 * [ ] Repo copiado a otra máquina compila con `cargo build --release` sin dependencias Python.
-* [ ] Este doc + `docs/nuevo-diseño.md` con contrato idéntico y sin flags fuera de lista.
+* [ ] Este doc + `docs/diseño.md` con contrato idéntico y sin flags fuera de lista.
 
 ## 7. Alcance
 
-* Implementación íntegra en Rust según `RNF-01`. Contrato CLI (`docs/nuevo-diseño.md §4`), errores, mapeo `pct` y umbrales de `SI-SDR` mandan sin cambios.
+* Implementación íntegra en Rust según `RNF-01`. Contrato CLI (`docs/diseño.md §4`), errores, mapeo `pct` y umbrales de `SI-SDR` mandan sin cambios.
