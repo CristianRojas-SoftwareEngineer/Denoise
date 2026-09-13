@@ -117,8 +117,6 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * Estilo: `std::path::PathBuf`, `clippy+rustfmt`, `std::process::Command` con argv sin shell, `String::from_utf8_lossy`, ASCII seguro en `pwsh`.
 * **Verificación:** `cargo build --release` (con `ort download-binaries`, sin cmake ni runtime del sistema) + `./target/release/denoise --help` funciona con este repo copiado a otra máquina con toolchain Rust + `ffmpeg 6+`.
 
-## 3. Requerimientos no funcionales
-
 ### RNF-02 Portabilidad
 * `Windows 10+ / macOS 13+ / Linux x64`. Rutas con espacios y no-latinas. Hijos `ffmpeg` siempre con `String::from_utf8_lossy`. Sin `NUL` vs `/dev/null` hardcodeado.
 * **Verificación:** script local `verify.ps1` (Win) + instrucciones manuales por OS (D19 cerrado 2026-09-13: sin CI v1, portabilidad 3 OS manual).
