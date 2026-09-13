@@ -18,7 +18,7 @@
 
 ## 2. Principios de diseño
 
-1. **Autocontenida Rust:** `std + ort 2 pinnado con `tls-rustls` (D36 cerrado 2026-09-13, opción A) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-manual-roots) + serde 1 (+derive)/serde_json + log + env_logger + which + regex 1 + sysinfo + ffmpeg` binario (+ `sha2/flate2/tar/home/ctrlc/anyhow(thiserror en lib)`, `rand 0.8` solo dev; `rust-version="1.88"`, `edition="2021"`, `Cargo.lock` versionado en git, `[profile.release] opt-level=3, strip=true`; lista completa en `docs/specifications.md RNF-01`, detalle de features autoritativo en `docs/plan.md T0.3`). Sin `Python/torch/librosa/Flask/pillow/opencv`. (D17: `sysinfo` para disco).
+1. **Autocontenida Rust:** `std + ort 2 pinnado con `tls-rustls` (D36 cerrado 2026-09-13, opción A; D42 cerrado 2026-09-13: pin fijo `=2.0.0-rc.13`, RC vigente verificado, sin «actualizar») + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-manual-roots) + serde 1 (+derive)/serde_json + log + env_logger + which + regex 1 + sysinfo + ffmpeg` binario (+ `sha2/flate2/tar/home/ctrlc/anyhow(thiserror en lib)`, `rand 0.8` solo dev; `rust-version="1.88"`, `edition="2021"`, `Cargo.lock` versionado en git, `[profile.release] opt-level=3, strip=true`; lista completa en `docs/specifications.md RNF-01`, detalle de features autoritativo en `docs/plan.md T0.3`). Sin `Python/torch/librosa/Flask/pillow/opencv`. (D17: `sysinfo` para disco).
 2. **No reinventar DSP:** constantes y orden de operaciones de DeepFilterNet3 se copian exactos según §6. El riesgo es regresión numérica.
 3. **Video nunca se re-codifica:** `-c:v copy`. Solo el audio se procesa.
 4. **Fallo explícito y limpio:** exit codes, temps siempre borrados, `String::from_utf8_lossy` en Windows.
@@ -61,7 +61,7 @@
     test_remux.rs            # codec/res/fps/duración/bitrate, sin re-encode (#[ignore] slow)
     test_errors.rs           # E_* + overwrite/skip (D13: Ctrl+C no se simula en tests, solo manual T5.1)
     test_reporter.rs         # orden [i/N], JSONL parseable, summary ok/failed/skipped
-    data/README.md           # spec vectores sintéticos + generador determinista (seed 0)
+    data/README.md           # spec vectores sintéticos + generador determinista (seed 0/1, D45 cerrado 2026-09-13, parte b: 0=par 3s, 1=par 65s D30)
     data/*.wav               # vectores versionados (D39: nunca se regeneran en CI)
   examples/
     gen_vectors.rs           # generador determinista seed 0/1 (D39 cerrado 2026-09-13, opción A: `cargo run --example gen_vectors`, solo manual; no corre en `cargo test`)
@@ -149,7 +149,7 @@ Secuencia por chunk:
 5. Alineación `k+LOOKAHEAD`, `out = spec*(mask@erb_inv)`; deep-filter taps `k-2..k+2` en bins `0..96` si `lsnr<=20`; si `lsnr>35` intacto; si `lsnr<-15` mute (D37 opción B).
 6. `iSTFT * FFT * ventana`, overlap-add, recorte `HOP:HOP+n`, crossfade entre chunks.
 
-Criterio de fidelidad: `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` y `SI-SDR(denoised,referencia_dfn3) >=60dB` (bloqueante, D9 cerrado + D30 cerrado 2026-09-13: estricto sin relajación; 55-59dB también bloquea). Vectores deterministas en `tests/data/` versionados en git, generados solo manualmente con `examples/gen_vectors.rs` (D39 cerrado 2026-09-13, opción A: `cargo run --example gen_vectors`; nunca en `cargo test` ni CI, preserva el congelado D14): seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` (`voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` D14: generada una vez con el propio port tras validar mejora, luego congelada) + par largo `440Hz 65s seed 1` (`voz65s.wav`, `mezcla65s10dB.wav`, `referencia65s_dfn3.wav`) para 2 chunks + crossfade. `SI-SDR` implementado Rust puro en `tests/common/si_sdr.rs` (zero-mean, `eps=1e-8`). Cualquier desviación bajo umbrales = bug bloqueante. Referencias informativas: `~77dB` paridad, `20.8dB` pipeline oficial.
+Criterio de fidelidad: `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` y `SI-SDR(denoised,referencia_dfn3) >=60dB` (bloqueante, D9 cerrado + D30 cerrado 2026-09-13: estricto sin relajación; 55-59dB también bloquea). Vectores deterministas en `tests/data/` versionados en git, generados solo manualmente con `examples/gen_vectors.rs` (D39 cerrado 2026-09-13, opción A: `cargo run --example gen_vectors`; nunca en `cargo test` ni CI, preserva el congelado D14): seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` (`voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` D14: generada una vez con el propio port tras validar mejora, luego congelada; D37 invalida refs previas: regenerar una única vez con nuevos umbrales D37 y recongelar) + par largo `440Hz 65s seed 1` (`voz65s.wav`, `mezcla65s10dB.wav`, `referencia65s_dfn3.wav`) para 2 chunks + crossfade (misma regla D14/D37). `SI-SDR` implementado Rust puro en `tests/common/si_sdr.rs` (zero-mean, `eps=1e-8`). Cualquier desviación bajo umbrales = bug bloqueante. Referencias informativas: `~77dB` paridad, `20.8dB` pipeline oficial.
 
 ## 7. Módulo `models.rs` — modelo autocontenido
 
