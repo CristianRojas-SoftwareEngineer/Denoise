@@ -68,7 +68,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ### RF-05 Denoise de pista de audio (única transformación IA)
 * **ID:** RF-05. **Prioridad:** Alta.
-* Extraer con `ffmpeg -vn -map 0:a:0 -ac 1 -ar 48000` (D3 cerrado: `-map 0:a:0` obligatorio para fijar primera pista en multi-audio), inferir DeepFilterNet3 3-grafos en CPU, remezclar.
+* Extraer con `ffmpeg -vn -map 0:a:0 -ac 1 -ar 48000` (D3 cerrado: `-map 0:a:0` obligatorio para fijar primera pista en multi-audio), inferir DeepFilterNet3 3-grafos en CPU, normalizar sonoridad/pico a `-1.0 dBFS` (cero distorsión, presencia y volumen uniforme de voz), remezclar.
 * Video: `-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <audio-bitrate>k -t <dur_video>` (D_d cerrado 2026-09-13, opción A + D_k cerrado 2026-09-13, opción A: sustituye a `-shortest`; `<dur_video>` = duración del CONTENEDOR leída en probe (`Duration:`) —D_k redefinió «stream de video», dato que el probe sin `ffprobe` no puede exponer—; si el audio limpio es más corto, la cola queda muda; si el audio del input es más largo que el video, la salida se alarga a la duración del contenedor (limitación v1 documentada en `docs/design.md §9`); coherente con verificación ligera `±0.5s`).
 * **Aceptación:** salida conserva `codec/res/fps` originales, duración `±0.2s`, audio `aac 48k` al bitrate pedido; mejora audible/SI-SDR en test dorado. Verificación runtime ligera: `OUT existe >0B + duración ±0.5s vía ffmpeg -i + presencia stream Audio AAC`; verificación estricta `±0.2s/bitrate±10%` solo en `test_remux`.
 

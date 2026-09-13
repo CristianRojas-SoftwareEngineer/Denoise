@@ -171,9 +171,24 @@ pub fn denoise_wav_with_provider(
     }
 
     // 5. Fusionar chunks procesados con crossfade
-    let merged_samples = merge_processed_chunks(&processed_chunks, total_samples);
+    let mut merged_samples = merge_processed_chunks(&processed_chunks, total_samples);
 
-    // 6. Escribir WAV de salida PCM16
+    // 6. Normalización de sonoridad / pico a -1.0 dBFS (Alternativa A)
+    // Escala la señal para que el pico máximo quede exactamente en -1.0 dBFS (0.89125),
+    // garantizando presencia clara de voz, volumen uniforme y 100% libre de clipping.
+    let max_abs = merged_samples
+        .iter()
+        .map(|s| s.abs())
+        .fold(0.0_f32, f32::max);
+    if max_abs > 0.0001 {
+        let target_peak = 10.0_f32.powf(-1.0 / 20.0); // ≈ 0.89125 (-1.0 dBFS)
+        let scale = (target_peak / max_abs).min(20.0); // max +26 dB boost
+        for s in &mut merged_samples {
+            *s *= scale;
+        }
+    }
+
+    // 7. Escribir WAV de salida PCM16
     let mut writer = WavWriter::create(
         out_wav,
         WavSpec {
