@@ -1,4 +1,4 @@
-# Plan de implementación — `Video-Noise-Remover` v1.0.0 Rust
+# Plan de implementación — `denoise` v1.0.0 Rust
 
 > Documentos canónicos en `docs/`: `especificaciones.md` (RF/RNF + aceptación) + `diseño.md` (arquitectura + DSP + contrato `docs/diseño.md §4`). Nombres sin prefijo refieren a hermanos en `docs/` (`docs/<fichero>` desde la raíz).
 > Este plan no redefine contratos; solo ordena el trabajo para la implementación Rust.
@@ -6,12 +6,12 @@
 
 ## 0. Convenciones globales (valen para todas las fases)
 
-* Stack Rust: `stable 1.88+ (`rust-version="1.88"`, `edition="2021"`) + ort 2 (feature download-binaries) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-manual-roots) + sha2 + flate2 + tar + home + which + ctrlc + anyhow (bin)/thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger + regex 1` + `rand 0.8` dev-dep fixtures + binario `ffmpeg 6+`. `Cargo.lock` versionado en git; `[profile.release] opt-level=3, strip=true`. Sin Python en runtime. `model-dir` defecto `~/.cache` en las 3 OS. Detalle de features autoritativo en `T0.3`. (D15 cerrado 2026-09-13: se mantiene `docs/diseño.md` con `ñ` en UTF-8; riesgo NFD macOS asumido, sin renombrar.)
+* Stack Rust: `stable 1.88+ (`rust-version="1.88"`, `edition="2021"`) + ort 2 (feature download-binaries) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-manual-roots) + sha2 + flate2 + tar + home + which + ctrlc + sysinfo + anyhow (bin)/thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger + regex 1` + `rand 0.8` dev-dep fixtures + binario `ffmpeg 6+`. `Cargo.lock` versionado en git; `[profile.release] opt-level=3, strip=true`. Sin Python en runtime. `model-dir` defecto `~/.cache` en las 3 OS. Detalle de features autoritativo en `T0.3`. (D15 cerrado 2026-09-13: se mantiene `docs/diseño.md` con `ñ` en UTF-8; riesgo NFD macOS asumido, sin renombrar.)
 * Estilo: `PathBuf`, `clippy+rustfmt`, `std::process::Command` argv sin shell, `String::from_utf8_lossy`, ASCII seguro en `pwsh`, flush explícito.
 * Versión: `Cargo.toml [package] version="1.0.0"` fuente única vía `env!("CARGO_PKG_VERSION")`. `LICENSE MIT`, `README.md`, `CHANGELOG.md (1.0.0)` en raíz.
 * Comandos:
   * `cargo build --release`
-  * `cargo test` (rápido, sin red/modelo/ffmpeg pesado)
+  * `cargo test` (rápido, requiere `ffmpeg 6+` real, sin red/modelo ONNX vía `FakeProvider`; D22 cerrado)
   * `cargo test -- --ignored` (dorado + e2e)
   * `cargo run -- --help`
 * DoD por tarea: código + test en verde + sin código Python + `clippy` sin warnings + `rustfmt` limpio.
@@ -23,9 +23,9 @@ Objetivo: repo Rust compilable vacío que prueba `RNF-01`.
 
 * T0.1 `.gitignore` Rust: `target/`, `*.tmp.*.wav`, `*.part.mp4`, `out/`, `limpios/`, `*.log`. (D15: ignora salidas E2E `out/limpios`, no `tests/data/`.)
 * T0.2 Crear `LICENSE` MIT, `README.md` mínimo (instalación `cargo build --release` + `ffmpeg 6+`, 3 ejemplos idénticos a `docs/diseño.md §4` + limitaciones mono/primera pista/secuencial + atribución `MIT © Rikorose/DeepFilterNet`), `CHANGELOG.md` con entrada `1.0.0`.
-* T0.3 Crear `Cargo.toml` mínimo: `[package] name="denoise-videos" version="1.0.0" edition="2021" rust-version="1.88"`, `[lib] name="denoise_videos" path="src/lib.rs"`, `[[bin]] name="denoise" path="src/main.rs"`, `[profile.release] opt-level=3, strip=true`, deps `clap 4 (derive) + ort 2 (feature download-binaries) + ndarray + rustfft + hound + indicatif + reqwest 0.12 (blocking + rustls-tls-manual-roots, User-Agent) + sha2 + flate2 + tar + home + which + ctrlc + anyhow + thiserror + serde 1 (+derive) + serde_json + log + env_logger + regex 1`, dev-deps `rand 0.8`. Fuente única `Cargo.toml`, prohibido duplicar versión en código. (D10 cerrado) `git add Cargo.lock` obligatorio + `rustup component add clippy rustfmt`. (D11 cerrado 2026-09-13: `regex 1` añadida para `ffmpeg version (\d+)\.` y `Duration:` en T2.1/T2.2. D15: `reqwest blocking` — descarga modelo síncrona simple, sin `tokio`.)
+* T0.3 Crear `Cargo.toml` mínimo: `[package] name="denoise" version="1.0.0" edition="2021" rust-version="1.88"`, `[lib] name="denoise" path="src/lib.rs"`, `[[bin]] name="denoise" path="src/main.rs"`, (D16 cerrado: todo `denoise`) `[profile.release] opt-level=3, strip=true`, deps `clap 4 (derive) + ort 2 (feature download-binaries) + ndarray + rustfft + hound + indicatif + reqwest 0.12 (blocking + rustls-tls-manual-roots, User-Agent) + sha2 + flate2 + tar + home + which + ctrlc + sysinfo + anyhow + thiserror + serde 1 (+derive) + serde_json + log + env_logger + regex 1`, dev-deps `rand 0.8`. Fuente única `Cargo.toml`, prohibido duplicar versión en código. (D10 cerrado) `git add Cargo.lock` obligatorio + `rustup component add clippy rustfmt`. (D11 cerrado 2026-09-13: `regex 1` añadida para `ffmpeg version (\d+)\.` y `Duration:` en T2.1/T2.2. D15: `reqwest blocking` — descarga modelo síncrona simple, sin `tokio`.)
 * T0.4 Crear esqueleto `src/main.rs` (fino), `src/lib.rs` (re-exporta módulos para `tests/`), `cli.rs`, `pipeline.rs`, `df.rs`, `models.rs`, `ffmpeg_io.rs`, `errors.rs` con `TODO` + `tests/test_naming.rs`, `tests/test_golden.rs`, `tests/test_remux.rs`, `tests/test_errors.rs`, `tests/test_reporter.rs`, `tests/common/si_sdr.rs`, `tests/data/README.md` (contenido real en Fases 1-4).
-* T0.5 Verificación: `cargo build --release` + `./target/release/denoise --help` (aunque sea stub) funciona con el repo copiado a otra carpeta con toolchain Rust. (D10 cerrado) + `cargo clippy -- -D warnings` y `cargo fmt --check` limpios + CI mínimo Win `.github/workflows/ci.yml` (`build` + `test` rápido) (D15).
+* T0.5 Verificación: `cargo build --release` + `./target/release/denoise --help` (aunque sea stub) funciona con el repo copiado a otra carpeta con toolchain Rust. (D10 cerrado) + `cargo clippy -- -D warnings` y `cargo fmt --check` limpios + CI mínimo Win `.github/workflows/ci.yml` (`build` + `test` rápido) (D15; D19 cerrado: CI solo Win suficiente v1, resto manual).
 
 Salida: `cargo test` colecta 0 tests sin error; `RNF-01` verificable.
 
@@ -35,10 +35,10 @@ Objetivo: cerrar `RF-01/02/03/04 + RF-08(dry-run/reporte puro) + RF-10(help/vers
 
 * T1.0 `errors.rs` (primero): enum `E_*` (`E_INVALID_INPUT/E_OUTPUT_EXISTS/E_NO_AUDIO/E_FFMPEG_NOT_FOUND/E_MODEL_MISSING/E_FFMPEG_FAILED/E_IO/E_CANCELLED`) + `exit_code()` (`E_IO→1`) + mensajes accionables con `thiserror` (lib) / `anyhow` (bin). Sin I/O, testeable puro.
 * T1.1 `cli.rs: clap` exacto del contrato `docs/diseño.md §4`: `INPUT... [-o/--output OUT|--output-dir DIR] [--prefix] [--suffix=_denoised] [--recursive] [--overwrite|--skip-existing] [--audio-bitrate=192] [--model-dir] [--ffmpeg-path] [--dry-run] [--json] [-v] [--version]` (D10: forma canónica `-o/--output`). `--overwrite/--skip-existing` mutuamente excluyentes. (D12 cerrado 2026-09-13) `-o/--output` y `--output-dir` mutuamente excluyentes vía `conflicts_with`; combinación → `E_INVALID_INPUT`. `--audio-bitrate 64-320`, si no → `E_INVALID_INPUT`.
-* T1.2 `cli.rs: expandir_entradas()`: archivos `mp4/mov/mkv/webm/avi` case-insensitive + directorios según `--recursive`, orden alfabético determinista, sin duplicados por absoluto normalizado. Excluir `--output-dir` si está dentro de `INPUT` + aviso `-v`. (D4 cerrado) Excluir además `*<suffix>.mp4` vigente en escaneos `--recursive` + aviso `-v`. Ruta inexistente/extensión mala → registra `failed E_INVALID_INPUT`, no aborta lote.
-* T1.3 `cli.rs: resolve_output()` pura: precedencia `1) N==1 + -o/--output exacto (D7: crea directorios padre; D10: forma canónica `-o/--output`) > 2) --output-dir/<prefix><stem><suffix>.mp4 recreando árbol si --recursive (D7: crea directorios padre) > 3) junto a original`. Valida `prefix/suffix [A-Za-z0-9._-]`, no ambos vacíos si in-place. Colisión sin `--overwrite` → `E_OUTPUT_EXISTS`; con `--skip-existing` → `skipped`. `-o/--output` a la propia entrada → warning `stderr`.
-* T1.4 `cli.rs: --dry-run` tabla `input → output (skip: motivo)` mismo orden del lote real, sin tocar disco/IA. (D5 cerrado) Exit `0` siempre en `--dry-run`. Con `--json` emite `JSONL status="dry-run" pct=0` + `summary`. Sin `--json` humano a `stderr`. `--json` emite `JSONL {input,output,status,message,pct}+{summary:{ok,failed,skipped}}` a `stdout`, humano a `stderr`, sin animación, `pct` según mapeo de `docs/diseño.md §8`. `--version` → `denoise-videos 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` desde `CARGO_PKG_VERSION` (`ffmpeg missing` si ausente).
-* T1.5 `tests/test_naming.rs` (sin ffmpeg/red): 1 archivo, N archivos, `--output-dir`, `prefix/suffix`, `-o/--output` solo `N==1` → error si `N>1`, `-o/--output` + `--output-dir` juntos → `E_INVALID_INPUT` (D12), colisión + `overwrite/skip`, `--recursive` recrea árbol + exclusión output anidado + exclusión `*<suffix>.mp4` (D4), caracteres inválidos → `E_INVALID_INPUT`, lote vacío → `E_INVALID_INPUT`.
+* T1.2 `cli.rs: expandir_entradas()`: archivos `mp4/mov/mkv/webm/avi` case-insensitive + directorios según `--recursive`, orden byte-wise UTF-8 determinista (D21), sin duplicados por absoluto normalizado (case-insensitive solo Win). Excluir `--output-dir` si está dentro de `INPUT` + aviso `-v`. (D4 cerrado) Excluir además `*<suffix>.mp4` vigente en escaneos `--recursive` + aviso `-v`. Ruta inexistente/extensión mala → registra `failed E_INVALID_INPUT`, no aborta lote.
+* T1.3 `cli.rs: resolve_output()` pura: precedencia `1) lote expandido==1 + -o/--output exacto (D7: crea directorios padre; D10: forma canónica `-o/--output`; D20: vale archivo o dir con 1 video) > 2) --output-dir/<prefix><stem><suffix>.mp4 recreando árbol si --recursive (D7: crea directorios padre) > 3) junto a original`. Valida `prefix/suffix [A-Za-z0-9._-]`, no ambos vacíos si in-place. Colisión sin `--overwrite` → `E_OUTPUT_EXISTS`; con `--skip-existing` → `skipped`. `-o/--output` a la propia entrada → warning `stderr`.
+* T1.4 `cli.rs: --dry-run` tabla `input → output (skip: motivo)` mismo orden del lote real, sin tocar disco/IA, puro sin I/O (D23: sin `ffmpeg/modelo/has_audio`). (D5 cerrado) Exit `0` siempre en `--dry-run`. Con `--json` emite `JSONL status="dry-run" pct=0` + `summary`. Sin `--json` humano a `stderr`. `--json` emite `JSONL {input,output,status,message,pct}+{summary:{ok,failed,skipped}}` a `stdout`, humano a `stderr`, sin animación, `pct` según mapeo de `docs/diseño.md §8`. `--version` → `denoise 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` desde `CARGO_PKG_VERSION` (`ffmpeg missing` si ausente).
+* T1.5 `tests/test_naming.rs` (sin ffmpeg/red): 1 archivo, N archivos, `--output-dir`, `prefix/suffix`, `-o/--output` solo lote==1 → error si lote `>1` (D20; dir con 1 video permite `-o`), `-o/--output` + `--output-dir` juntos → `E_INVALID_INPUT` (D12), colisión + `overwrite/skip`, `--recursive` recrea árbol + exclusión output anidado + exclusión `*<suffix>.mp4` (D4), caracteres inválidos → `E_INVALID_INPUT`, lote vacío → `E_INVALID_INPUT`.
 
 Verificación: `cargo test` verde. Riesgo: ninguno (sin I/O).
 
@@ -50,7 +50,7 @@ Objetivo: cerrar `RF-06/RF-07 + RNF-05` con `tests/test_errors.rs` parcial (sin 
 * T2.1 `ffmpeg_io.rs: find_ffmpeg()`: `--ffmpeg-path → crate which en PATH (PATHEXT en Win) → E_FFMPEG_NOT_FOUND`. Exigir `ffmpeg 6+` vía `ffmpeg -version` con regex `ffmpeg version (\d+)\.` major>=6. Sin `ffprobe`. Documentar receta por OS en `README.md` (Win `winget/choco`, macOS `brew`, Linux `apt`).
 * T2.2 `ffmpeg_io.rs: has_audio()/probe()`: `ffmpeg -hide_banner -i`, `Audio:` en `stderr`, regex `Duration:`. Sin audio → `E_NO_AUDIO`. (D6 cerrado) Solo-video → `E_NO_AUDIO`; solo-audio/corrupto en probe → `E_INVALID_INPUT`; `E_FFMPEG_FAILED` solo en `extract/remux`.
 * T2.3 `ffmpeg_io.rs: extract_mono48k()/remux_copy()`: `ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav` (D3 cerrado) y `ffmpeg -y -v error -i IN -i TMP.out.wav -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <bitrate>k -shortest OUT.mp4`. Todo `Command` argv, `from_utf8_lossy`. Error → `E_FFMPEG_FAILED`, sin parciales.
-* T2.4 `models.rs: ensure_models()` tras trait `ModelsProvider`: URL canónica verificada en T2.0 (D2), `7983136B>=98% + SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` obligatorio (D1 cerrado definitivo 2026-09-13), miembros `tmp/export/{enc,erb_dec,df_dec}.onnx → dfn3_*.onnx`, `User-Agent: Video-Noise-Remover/1.0.0`, `reqwest blocking+rustls`, `timeout 30s/retry 3`, anti `tar-slip`, chequeo disco >=50MB libres (D15; si no → `E_IO`), `.part + rename` (Win `remove` previo si existe), extraer + borrar `.tar.gz`. `model-dir` defecto `~/.cache/denoise-videos/models` vía `home`. Fallo red/modelo → `E_MODEL_MISSING` + URL + ruta manual; fallo disco → `E_IO`. Sesiones `ort CPUExecutionProvider` cacheadas + `Mutex`.
+* T2.4 `models.rs: ensure_models()` tras trait `ModelsProvider`: URL canónica verificada en T2.0 (D2), `7983136B>=98% + SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` obligatorio (D1 cerrado definitivo 2026-09-13), miembros `tmp/export/{enc,erb_dec,df_dec}.onnx → dfn3_*.onnx`, `User-Agent: denoise/1.0.0` (D16), `reqwest blocking+rustls`, `timeout 30s/retry 3`, anti `tar-slip`, chequeo disco >=50MB libres vía `sysinfo` (D17 cerrado; si no → `E_IO`), `.part + rename` (Win `remove` previo si existe), extraer + borrar `.tar.gz`. `model-dir` defecto `~/.cache/denoise/models` vía `home`. Fallo red/modelo → `E_MODEL_MISSING` + URL + ruta manual; fallo disco → `E_IO`. Sesiones `ort CPUExecutionProvider` cacheadas + `Mutex`.
 * T2.5 CERRADA 2026-09-13: `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` obtenido por descarga real (7983136B exactos, `Get-FileHash` + `tar -tzf`) y registrado en `docs/especificaciones.md RF-06/RNF-05` + `docs/diseño.md §7`; SHA obligatorio desde ahora.
 * T2.6 `tests/test_errors.rs` (parte 1): sin audio/solo-video → `E_NO_AUDIO`, solo-audio/corrupto en probe → `E_INVALID_INPUT` (D6), ffmpeg ausente → `E_FFMPEG_NOT_FOUND`, descarga rota → `E_MODEL_MISSING`, destino existe → `E_OUTPUT_EXISTS/skipped`, `bitrate 9999` → `E_INVALID_INPUT`, disco/sin permiso/`-o/--output`/`--output-dir`/`--model-dir` no creables → `E_IO` (D7). Nada parcial en disco.
 
@@ -87,9 +87,9 @@ Objetivo: cumplir `docs/especificaciones.md §6` y publicar.
 * T5.3 `--help` idéntico a contrato `docs/diseño.md §4` (forma canónica `-o/--output`, D10; exclusión D12), `README.md/CHANGELOG.md/LICENSE` finales, `clippy+rustfmt` + `cargo build --release` limpio sin Python + `Cargo.lock` versionado en git + CI Win `.github/workflows/ci.yml` verde (D10+D15).
 * T5.4 Tag `v1.0.0`: `cargo test` + `cargo test -- --ignored` verdes, sin código Python en repo + `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` ya registrado (T2.5 cerrada) + URL `T2.0` verificada.
 
-## Trazabilidad RF → fase/test
+## Trazabilidad RF/RNF → fase/test (D18 cerrado: tabla ampliada a todos los RNF)
 
-| RF | Fase | Test |
+| RF/RNF | Fase | Test |
 |---|---|---|
 | RF-01, RF-02, RF-03, RF-04 | 1 | `test_naming` |
 | RF-05B | 1+4 | `test_naming` + `test_remux` (bitrate±10%) |
@@ -99,7 +99,15 @@ Objetivo: cumplir `docs/especificaciones.md §6` y publicar.
 | RF-08 | 1+4 | `test_reporter` + lote 5 E2E |
 | RF-09 | 4+5 | `test_errors (E_IO, limpieza Drop/guardia)` + manual Ctrl+C en extract/inferencia/remux (D13: sin simulado en tests) |
 | RF-10 | 1+5 | `--help/--version` manual + E2E |
+| RNF-01 | 0 | `cargo build --release` + `cargo test` 0 tests (T0.5) + sin Python |
+| RNF-02 | 4+5 | CI Win + matriz manual 1 video por OS (D19) + `test_remux` |
+| RNF-03 | 3+4 | chunks `60s/1s` + telemetría `-v` (sin objetivo contractual) |
 | RNF-04 | 3 | `test_golden mejora>=5dB + paridad>=60dB` bloqueante |
+| RNF-05 | 2 | URL fija + SHA + `Command` argv (sin shell) + `test_errors` |
+| RNF-06 | 4 | exits `0/1/2/3` + `--json` estable + `test_reporter` |
+| RNF-07 | 1-4 | módulos <300 líneas + `clippy -D warnings` + `fmt --check` + `cargo test` |
+| RNF-08 | 0+5 | `LICENSE` + atribución `README/--version` (manual T5.3) |
+| RNF-09 | 0+5 | `README` 3 ejemplos + `--help` idéntico §4 + `CHANGELOG` (manual T5.3) |
 | `E_IO` | 2+4 | `test_errors (disco/permiso)` + E2E casos borde |
 
 ## Riesgos principales
