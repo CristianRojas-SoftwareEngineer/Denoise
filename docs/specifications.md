@@ -4,7 +4,7 @@
 > Convención de rutas: `docs/<fichero>` es relativo a la raíz del repo.
 > Idioma CLI y mensajes: inglés técnico para flags/ayuda, este documento en español.
 > Convención: `INPUT...` = 1..N rutas; `stem` = nombre sin extensión; salida siempre `.mp4`.
-> Registro de numeración de decisiones: D1–D45 + D_a–D_q (ciclo 2026-09-13). D43 reservada/absorbida por D45, sin contenido propio (D_g cerrado 2026-09-13, ver `docs/design.md` encabezado).
+> Registro de numeración de decisiones: D1–D45 + D_a–D_q + D_r, D_s (ciclo 2026-09-13). D43 reservada/absorbida por D45, sin contenido propio (D_g cerrado 2026-09-13, ver `docs/design.md` encabezado).
 
 ## 1. Resumen
 
@@ -40,6 +40,25 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
   * `denoise a.mp4 --output-name final` → `final.mp4` (cwd)
   * `denoise a.mp4 --output-name final --output-dir limpio` → `limpio/final.mp4`
   * `denoise a.mp4 --verbose` → salida de debug `stderr` sin modificar salida
+
+* **Tabla de decisión — composición de nombres de salida (D_o cerrado 2026-09-13):**
+
+  | `--output-name` | `--output-dir` | `--prefix` | `--suffix` | Resultado |
+  |---|---|---|---|---|
+  | NAME | — | — | — | `NAME.mp4` (cwd) |
+  | NAME | DIR | — | — | `DIR/NAME.mp4` |
+  | NAME | — | pre | suf | `preNAMEsuf.mp4` (cwd) — **prefix/suffix IGNORADOS** si `--output-name` presente |
+  | NAME | DIR | pre | suf | `DIR/NAME.mp4` — **prefix/suffix IGNORADOS** si `--output-name` presente |
+  | — | DIR | — | suf | `DIR/<stem><suf>.mp4` |
+  | — | DIR | pre | — | `DIR/<pre><stem>.mp4` |
+  | — | — | pre | suf | `<pre><stem><suf>.mp4` (cwd, junto al original) |
+  | — | — | — | suf | `<stem><suf>.mp4` (cwd, junto al original; defecto suf=`_denoised`) |
+
+  **Reglas:**
+  1. `--output-name` tiene **prioridad absoluta**: cuando está presente, `NAME` es el nombre base final y `prefix`/`suffix` se **ignoran** (no se aplican). `--output-name` sin `.mp4` → auto-añade `.mp4` (D35). `--output-name` con lote>1 → `E_INVALID_INPUT` (D20). `--output-name` resolviendo a la propia entrada sin prefix/suffix efectivo → `E_INVALID_INPUT` exit `2` SIEMPRE (D_p).
+  2. `--prefix` y `--suffix` se aplican **solo** cuando `--output-name` NO está presente. Se insertan entre `stem` y `.mp4` (o entre `DIR/` y el nombre final en regla 2). Si ambos vacíos → `_denoised` como defecto de suffix. Si ambos vacíos y salida in-place (mismo dir que entrada) → `E_INVALID_INPUT` (D33).
+  3. `--output-dir` modifica solo la **ruta directorio**, no el nombre. Si `--output-dir` está dentro de `INPUT` → aviso `--verbose` (exclusión).
+  4. `--output-name` y `--output-dir` son **COMPLEMENTARIOS** (D_o): no son excluyentes; definen nombre base y directorio respectivamente.
 
 ### RF-04 No sobrescribir por defecto
 * **ID:** RF-04. **Prioridad:** Alta.
@@ -138,6 +157,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 | `--model-dir` | RF-06 |
 | `--ffmpeg-path` | RF-07 |
 | `--dry-run, --json, --verbose` | RF-08, RF-09, RF-10 |
+| `verify.ps1` | RNF-02, D_s |
 
 ## 5. Casos borde obligatorios
 
@@ -147,6 +167,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 4. Salida en disco distinto / sin permiso escritura (`E_IO`) / `--output-name`, `--output-dir`, `--model-dir` a carpeta inexistente (debe crearla, si no creable → `E_IO`, D7) vs `--output-name` con lote expandido `>1` (debe fallar `E_INVALID_INPUT`, D20) o `--output-name` resolviendo a la propia entrada sin `prefix/suffix` efectivo (debe fallar `E_INVALID_INPUT` SIEMPRE, incluso con `--overwrite`, D_p). (D35: `--output-name` sin `.mp4` auto-añade, no falla).
 5. Lote con mezcla de ok + sin-audio + colisión existente + 1 ruta inexistente.
 6. Corte `Ctrl+C` durante `extract`, durante `inferencia chunk 3/7`, durante `remux` → exit 3, sin `.part` ni `.wav`.
+7. D_k (duración contenedor vs audio stream): si la pista de audio dura más que el video (duración del contenedor `Duration:` del probe), la salida se alarga a la duración del contenedor (el video termina antes / último frame extendido). Sin decode extra del stream de video en v1 (D_k cerrado 2026-09-13, opción A). Este comportamiento se documenta como limitación v1 y se verifica en `test_remux` con fixture donde audio y video tienen duraciones diferentes.
 
 ## 6. Criterios de aceptación de entrega v1 (DoD de ejecución — no bloquean cierre spec/plan, D34 cerrado 2026-09-13)
 
@@ -154,7 +175,23 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * [ ] `cargo test` en verde + `cargo test -- --ignored` (`test_golden/test_remux`) en verde en 1 máquina Win.
 * [ ] Corrida real `--json` en lote 5 con 1 fallo inducido → exit `!=0` y JSON parseable; `--dry-run` del mismo lote → exit `0`; progreso humano muestra `[i/N]` por video.
 * [ ] Repo copiado a otra máquina compila con `cargo build --release` sin dependencias Python.
+* [ ] `verify.ps1` local en Win ejecutable: `cargo build --release` + `cargo test` (sin `--ignored`) → PASS/FAIL por cada una. Script sin Python (D_q, D_s).
 * [ ] Este doc + `docs/design.md` con contrato idéntico y sin flags fuera de lista.
+
+### Fórmula SI-SDR (para `test_golden`, RNF-04)
+
+El criterio de aceptación del DSP (`test_golden`) usa **SI-SDR** (Scale-Invariant Signal-to-Distortion Ratio) como métrica de referencia. La fórmula es:
+
+```
+SI-SDR(x, x̂) = 10 · log10( ||x · ŝ||² / ||x - ŝ||² )
+```
+
+donde `x` = señal limpia de referencia, `x̂` = señal denoizada del modelo, `ŝ = (x·x̂ / ||x||²) · x` = proyección escalada de `x̂` sobre `x` (normalización de escala invariante). El test golden (`tests/data/`, vectores PCM16 `440Hz 3s` y `65s` + ruido blanco `SNR 10dB`, `SR 48k` mono `PCM16`, D_l cerrado 2026-09-13, opción A) exige:
+
+* **Mejora SI-SDR ≥ 5 dB** respecto a la entrada con ruido (bloqueante, RNF-04).
+* **Paridad SI-SDR ≥ 60 dB** vs referencia limpia generada con el mismo seed (`StdRng seed 0/1`, Box-Muller) y sin ruido (bloqueante, RNF-04).
+
+Si el DSP difiere numéricamente de la referencia → `test_golden` falla. La fórmula se implementa en `tests/common/si_sdr.rs`.
 
 ## 7. Alcance
 

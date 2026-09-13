@@ -3,7 +3,7 @@
 > Documentos canónicos en `docs/`: `specifications.md` (RF/RNF + aceptación) + `design.md` (arquitectura + DSP + contrato `docs/design.md §4`). Nombres sin prefijo refieren a hermanos en `docs/` (`docs/<fichero>` desde la raíz).
 > Este plan no redefine contratos; solo ordena el trabajo para la implementación Rust.
 > Repo autocontenido en raíz `./` con docs canónicos en `docs/`. Sin runtime Python.
-> Registro de numeración de decisiones: D1–D45 + D_a–D_q (ciclo 2026-09-13). D43 reservada/absorbida por D45, sin contenido propio (D_g cerrado 2026-09-13). D_o (output-name composicional), D_p (hardening salida==entrada), D_q (sin CI v1, verify.ps1) cerrados 2026-09-13.
+> Registro de numeración de decisiones: D1–D45 + D_a–D_q + D_r, D_s (ciclo 2026-09-13). D43 reservada/absorbida por D45, sin contenido propio (D_g cerrado 2026-09-13). D_o (output-name composicional), D_p (hardening salida==entrada), D_q (sin CI v1, verify.ps1), D_r (fórmula SI-SDR, tabla decisión composición nombres), D_s (verify.ps1 simple) cerrados 2026-09-13.
 
 ## 0. Convenciones globales (valen para todas las fases)
 
@@ -62,7 +62,7 @@ Verificación: `cargo test` verde con ffmpeg 6+ real pero sin ONNX pesado (`Fake
 Objetivo: cerrar `RF-05 + RNF-04` con `tests/test_golden.rs (#[ignore])` bloqueante.
 
 * T3.1 `df/` valores idénticos (D40 opción A: `mod.rs` orquesta + `stft.rs` + `erb.rs` + `net.rs` + `overlap.rs`, cada uno <300): `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/WNORM=1/(FFT²/2HOP)/ALPHA0.99/LSNR-15/35/20/CHUNK60s/OVERLAP1s` (D37 cerrado 2026-09-13, opción B), `_erb_widths()`, `_df_constants()` (vorbis + `erb_fb/erb_inv`), framing `pad HOP + cola FFT+LOOKAHEAD*HOP`, `STFT*ventana*WNORM`, features `ERB mean-norm/40 + unit-norm compleja`, inferencia `ort enc/erb_dec/df_dec`, alineación `k+LOOKAHEAD`, `mask@erb_inv + deep-filter taps k-2..k+2 si lsnr<=20 / intacto si >35 / mute si <-15`, `iSTFT*FFT*ventana + overlap-add + recorte HOP:HOP+n + crossfade`. Firma `denoise_wav(in: &Path, out: &Path, progress: &dyn Fn(usize,usize))` en `df/mod.rs`, sin `Command`, solo `ndarray+rustfft+ort+hound`. I/O WAV con `hound` PCM16 ↔ `f32`. Chequeo de cancelación cooperativa entre chunks.
-* T3.2 `tests/common/si_sdr.rs` (helper): `SI-SDR` Rust puro (zero-mean, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`). (D_h cerrado 2026-09-13, opción A: cada test que lo use lo declara con `#[path = "common/si_sdr.rs"] mod si_sdr;` —convención del Rust Book para helpers compartidos—; `tests/common/` no lleva `mod.rs` y Cargo no lo compila como test suelto).
+* T3.2 `tests/common/si_sdr.rs` (helper): `SI-SDR` Rust puro según fórmula definida en `docs/specifications.md §6`: `SI-SDR(x, x̂) = 10 · log10( ||x · ŝ||² / ||x - ŝ||² )` donde `ŝ = (x·x̂ / ||x||²) · x` (normalización de escala invariante). Zero-mean, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`. (D_h cerrado 2026-09-13, opción A: cada test que lo use lo declara con `#[path = "common/si_sdr.rs"] mod si_sdr;` —convención del Rust Book para helpers compartidos—; `tests/common/` no lleva `mod.rs` y Cargo no lo compila como test suelto).
 * T3.3 `tests/data/README.md` + generador determinista en `examples/gen_vectors.rs` (D39 cerrado 2026-09-13, opción A: `cargo run --example gen_vectors`, manual; `rand StdRng seed_from_u64(0/1)` + Box-Muller manual sin `rand_distr`, `hound`): seno `440Hz 3s` + ruido blanco a `SNR 10dB`, `SR 48k` mono `PCM16` en disco —dato en memoria `f32` vía `i16→f32/32768.0`, mismo camino que el pipeline real (D_l cerrado 2026-09-13, opción A)—. Guardar `voz.wav`, `mezcla10dB.wav`. `referencia_dfn3.wav` (D14 cerrado 2026-09-13: generada una vez con el propio port tras validar `mejora >=5dB` contra `voz.wav` y cordura vs `20.8dB` pipeline oficial; desde entonces congelada en `tests/data/` versionada y `paridad >=60dB` bloqueante; no se regenera en cada run ni en CI. D37 invalida refs previas: regenerar una única vez con nuevos umbrales D37 y recongelar). + par largo D30 cerrado 2026-09-13: mismo generador `seed 1`, `440Hz 65s` → `voz65s.wav`, `mezcla65s10dB.wav`, `referencia65s_dfn3.wav` para 2 chunks + crossfade (misma regla D14/D37: generados una vez con el port y recongelados).
 * T3.4 `tests/test_golden.rs (#[ignore])`: `denoise_wav(mezcla)`: `mejora >=5dB` y `paridad vs referencia >=60dB` en par 3s y par 65s (refs informativas `+5dB` / `20.8dB` / `~77dB`). Desviación = bug bloqueante (D9 cerrado + D30 cerrado 2026-09-13: estricto, sin relajación a 50dB).
 
@@ -85,7 +85,7 @@ Objetivo: cumplir `docs/specifications.md §6` y publicar.
 
 * T5.1 Casos borde obligatorios (`docs/specifications.md §5`): vertical/4K/`mkv` multi-audio (usa `0:v:0` + primera pista vía `-map 0:a:0`, D3), espacios/acentos/emoji + ruta >150 chars Win, `0B`/imagen renombrada/solo-audio → `E_INVALID_INPUT` + solo-video → `E_NO_AUDIO` (D6)/`bitrate` fuera de rango, disco distinto/sin permiso/`--output-name`/`--output-dir`/`--model-dir` a carpeta inexistente (crearla, D7; si no creable → `E_IO`), `--output-name` resolviendo a la propia entrada sin `prefix/suffix` → `E_INVALID_INPUT` (D_p, incluso con `--overwrite`), lote mixto ok+sin-audio+colisión+inexistente, `Ctrl+C` en extract/inferencia/remux → `exit 3` sin `.part/.wav` (D13: verificación solo manual, sin simulado en `test_errors`).
 * T5.2 Manual Win: 1 video corto + lote 5 (`--dry-run` primero exit `0` (D5), luego real + `--json`), progreso `[i/N]` sin silencio >2s.
-* T5.3 `--help` idéntico a contrato `docs/design.md §4` (forma canónica `--output-name`, D_o), `README.md/CHANGELOG.md/LICENSE` finales, `clippy+rustfmt` + `cargo build --release` limpio sin Python + `Cargo.lock` versionado en git + script local `verify.ps1` sin Python (D19 cerrado 2026-09-13: sin CI v1).
+* T5.3 `--help` idéntico a contrato `docs/design.md §4` (forma canónica `--output-name`, D_o), `README.md/CHANGELOG.md/LICENSE` finales, `clippy+rustfmt` + `cargo build --release` limpio sin Python + `Cargo.lock` versionado en git + script local `verify.ps1` sin Python: build + test rápido → PASS/FAIL (D19 cerrado 2026-09-13: sin CI v1; D_s cerrado 2026-09-13).
 * T5.4 Tag `v1.0.0`: `cargo test` + `cargo test -- --ignored` verdes, sin código Python en repo + `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` ya registrado (T2.5 cerrada) + URL `T2.0` verificada.
 
 ## Trazabilidad RF/RNF → fase/test (D18 cerrado: tabla ampliada a todos los RNF)
@@ -101,7 +101,7 @@ Objetivo: cumplir `docs/specifications.md §6` y publicar.
 | RF-09 | 4+5 | `test_errors (E_IO, limpieza Drop/guardia)` + manual Ctrl+C en extract/inferencia/remux (D13: sin simulado en tests) |
 | RF-10 | 1+5 | `--help/--version` manual + E2E |
 | RNF-01 | 0 | `cargo build --release` + `cargo test` en verde con test canario D41 (T0.5) + sin Python |
-| RNF-02 | 4+5 | script local `verify.ps1` (Win) + matriz manual 1 video por OS (D19: sin CI v1) + `test_remux` |
+| RNF-02 | 4+5 | script local `verify.ps1` (Win) — build + test rápido — + matriz manual 1 video por OS (D19: sin CI v1) + `test_remux` |
 | RNF-03 | 3+4 | chunks `60s/1s` + telemetría `--verbose` (sin objetivo contractual) |
 | RNF-04 | 3 | `test_golden mejora>=5dB + paridad>=60dB` bloqueante |
 | RNF-05 | 2 | URL fija + SHA + `Command` argv (sin shell) + `test_errors` |
@@ -110,6 +110,7 @@ Objetivo: cumplir `docs/specifications.md §6` y publicar.
 | RNF-08 | 0+5 | `LICENSE` + atribución `README/--version` (manual T5.3) |
 | RNF-09 | 0+5 | `README` 3 ejemplos + `--help` idéntico §4 + `CHANGELOG` (manual T5.3) |
 | `E_IO` | 2+4 | `test_errors (disco/permiso)` + E2E casos borde |
+| RNF-02 / `verify.ps1` (D_s) | 1 | `cargo build --release` + `cargo test` (sin --ignored) → PASS/FAIL script Win, sin Python |
 
 ## Riesgos principales
 

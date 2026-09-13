@@ -4,7 +4,7 @@
 > Repo autocontenido: este repo (`Video-Noise-Remover/` raíz). Sin runtime Python.
 > Documentos canónicos en `docs/`: este diseño + `specifications.md`. En caso de divergencia, el contrato CLI de §4 manda.
 > Convención de rutas: `docs/<fichero>` es relativo a la raíz del repo.
-> Registro de numeración de decisiones: D1–D45 + D_a–D_q (ciclo 2026-09-13). D43 reservada/absorbida por D45 (seeds 0/1, pares 3s/65s), sin contenido propio (D_g cerrado 2026-09-13). D_o (output-name composicional), D_p (hardening salida==entrada), D_q (sin CI v1, verify.ps1) cerrados 2026-09-13.
+> Registro de numeración de decisiones: D1–D45 + D_a–D_q + D_r, D_s (ciclo 2026-09-13). D43 reservada/absorbida por D45 (seeds 0/1, pares 3s/65s), sin contenido propio (D_g cerrado 2026-09-13). D_o (output-name composicional), D_p (hardening salida==entrada), D_q (sin CI v1, verify.ps1), D_r (fórmula SI-SDR, tabla decisión composición nombres), D_s (verify.ps1 simple) cerrados 2026-09-13.
 
 ## 1. Objetivo y no-objetivos
 
@@ -80,13 +80,14 @@ denoise INPUT... [--output-name NAME | --output-dir DIR] [--prefix STR] [--suffi
 * `INPUT...`: 1..N rutas. Cada una puede ser archivo (`mp4/mov/mkv/webm/avi`) o directorio. Entry-point: bin `denoise` desde `src/main.rs` sobre lib `src/lib.rs` (`cargo run -- ...` equivalente, `version` desde `Cargo.toml`). Los tests de integración importan la lib, nunca el bin.
 * `--audio-bitrate`: bitrate AAC de salida en kbps (defecto `192`, rango `64-320`).
 * Reglas de salida (precedencia; `--output-name` y `--output-dir` son COMPLEMENTARIOS, D_o cerrado 2026-09-13):
-  1. Si lote expandido==1 y `--output-name NAME`: `DIR/<prefix><NAME><suffix>.mp4`, donde `DIR` es `--output-dir` si se pasa, sino cwd. Auto-`.mp4` si NAME no termina en `.mp4` case-insensitive (D35 cerrado 2026-09-13 revisado: `final` → `final.mp4`). D20: `--output-name` solo con lote==1; lote>1 → `E_INVALID_INPUT`.
+  1. Si lote expandido==1 y `--output-name NAME`: `DIR/<NAME>.mp4`, donde `DIR` es `--output-dir` si se pasa, sino cwd. Auto-`.mp4` si NAME no termina en `.mp4` case-insensitive (D35 cerrado 2026-09-13 revisado: `final` → `final.mp4`). `prefix`/`suffix` se **ignoran** cuando `--output-name` está presente (D_o). D20: `--output-name` solo con lote==1; lote>1 → `E_INVALID_INPUT`.
   2. Si solo `--output-dir DIR`: `DIR/<relativo-a-cwd>/<prefix><stem><suffix>.mp4`, recreando subcarpetas si `--recursive` (D27 cerrado 2026-09-13, opción A: `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; fuera de cwd → solo `stem` + aviso `--verbose`).
-  3. Por defecto: junto al original como `<stem><suffix>.mp4` con `suffix=_denoised`, `prefix=""`.
+  3. Por defecto: junto al original como `<prefix><stem><suffix>.mp4` con `suffix=_denoised`, `prefix=""`.
   3b. (D_e cerrado 2026-09-13, opción C) Si 2+ entradas del lote resuelven al MISMO path de salida (`a.mp4`+`a.mov`→`a_denoised.mp4`), el 2º y siguientes reciben auto-sufijo incremental `_1`, `_2`... (`a_denoised_1.mp4`) con aviso SIEMPRE a `stderr` (no solo `--verbose`); aplica a las reglas 2 y 3. `--dry-run` muestra las salidas desempatadas ya en la tabla.
   4. Colisión sin `--overwrite`: error salvo `--skip-existing` (marca `skipped`, exit 0).
   5. (D7 cerrado) Directorios padre de `--output-name`, `--output-dir` y `--model-dir` se crean siempre; si no creables → `E_IO`.
   6. `prefix/suffix` solo `[A-Za-z0-9._-]`, prohibidos `.` y `..` exactos; no ambos vacíos si salida in-place (D33). `--output-name` que resuelve a la propia entrada sin `prefix/suffix` efectivo → `E_INVALID_INPUT` exit `2` SIEMPRE, incluso con `--overwrite` (D_p cerrado 2026-09-13: endurecido —D33 warning condicionado reemplazado por error invariante—).
+  7. `--output-name` y `--output-dir` son **COMPLEMENTARIOS** (D_o): `--output-name` define el nombre base final; `--output-dir` el directorio. Cuando `--output-name` está presente, `prefix`/`suffix` se ignoran. La composición completa se documenta en `docs/specifications.md §5 RF-03` (tabla de decisión).
 * Ejemplos:
   * `denoise boda.mp4`
   * `denoise boda.mp4 --prefix pod- --suffix _clean --audio-bitrate 128`
