@@ -4,6 +4,7 @@
 > Repo autocontenido: este repo (`Video-Noise-Remover/` raíz). Sin runtime Python.
 > Documentos canónicos en `docs/`: este diseño + `specifications.md`. En caso de divergencia, el contrato CLI de §4 manda.
 > Convención de rutas: `docs/<fichero>` es relativo a la raíz del repo.
+> Registro de numeración de decisiones: D1–D45 + D_a–D_j (ciclo 2026-09-13). D43 reservada/absorbida por D45 (seeds 0/1, pares 3s/65s), sin contenido propio (D_g cerrado 2026-09-13).
 
 ## 1. Objetivo y no-objetivos
 
@@ -18,7 +19,7 @@
 
 ## 2. Principios de diseño
 
-1. **Autocontenida Rust:** `std + ort 2 pinnado con `tls-rustls` (D36 cerrado 2026-09-13, opción A; D42 cerrado 2026-09-13: pin fijo `=2.0.0-rc.13`, RC vigente verificado, sin «actualizar») + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-manual-roots) + serde 1 (+derive)/serde_json + log + env_logger + which + regex 1 + sysinfo + ffmpeg` binario (+ `sha2/flate2/tar/home/ctrlc/anyhow(thiserror en lib)`, `rand 0.8` solo dev; `rust-version="1.88"`, `edition="2021"`, `Cargo.lock` versionado en git, `[profile.release] opt-level=3, strip=true`; lista completa en `docs/specifications.md RNF-01`, detalle de features autoritativo en `docs/plan.md T0.3`). Sin `Python/torch/librosa/Flask/pillow/opencv`. (D17: `sysinfo` para disco).
+1. **Autocontenida Rust:** `std + ort 2 pinnado `=2.0.0-rc.13` con `default-features=false` + `features = ["std","ndarray","copy-dylibs","download-binaries","tls-rustls"]` (D36 cerrado 2026-09-13, opción A; D42 cerrado 2026-09-13: pin fijo, RC vigente verificado, sin «actualizar»; D_b cerrado 2026-09-13: defaults de `ort` rc.13 incluyen `tls-native` (OpenSSL del sistema), desactivados con default-features=false + re-declaración explícita std/ndarray/copy-dylibs; TLS 100% rustls) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-webpki-roots, D_a) + serde 1 (+derive)/serde_json + log + env_logger + which + regex 1 + sysinfo + ffmpeg` binario (+ `sha2/flate2/tar/home/ctrlc/anyhow(thiserror en lib)`, `rand 0.8` solo dev; `rust-version="1.88"`, `edition="2021"`, `Cargo.lock` versionado en git, `[profile.release] opt-level=3, strip=true`; lista completa en `docs/specifications.md RNF-01`, detalle de features autoritativo en `docs/plan.md T0.3`). Sin `Python/torch/librosa/Flask/pillow/opencv`. (D17: `sysinfo` para disco).
 2. **No reinventar DSP:** constantes y orden de operaciones de DeepFilterNet3 se copian exactos según §6. El riesgo es regresión numérica.
 3. **Video nunca se re-codifica:** `-c:v copy`. Solo el audio se procesa.
 4. **Fallo explícito y limpio:** exit codes, temps siempre borrados, `String::from_utf8_lossy` en Windows.
@@ -56,7 +57,7 @@
     errors.rs                # E_* + exit codes
   tests/
     test_naming.rs           # reglas prefix/suffix/output-dir/-o (sin ffmpeg/red)
-    common/si_sdr.rs         # helper SI-SDR Rust puro
+    common/si_sdr.rs         # helper SI-SDR Rust puro (cada test lo declara: #[path = "common/si_sdr.rs"] mod si_sdr; D_h)
     test_golden.rs           # tono 10dB ruido blanco → mejora SI-SDR (#[ignore] slow)
     test_remux.rs            # codec/res/fps/duración/bitrate, sin re-encode (#[ignore] slow)
     test_errors.rs           # E_* + overwrite/skip (D13: Ctrl+C no se simula en tests, solo manual T5.1)
@@ -82,6 +83,7 @@ denoise INPUT... [-o/--output OUT | --output-dir DIR] [--prefix STR] [--suffix S
   1. Si lote expandido==1 y `-o/--output OUT`: ese archivo exacto con auto-`.mp4` (D10: forma canónica `-o/--output`; D20: vale `INPUT` archivo o directorio que expande a 1 video; D35 cerrado 2026-09-13 revisado: si no termina en `.mp4` case-insensitive se añade automáticamente, ej. `final` → `final.mp4`).
   2. Si `--output-dir DIR`: `DIR/<relativo-a-cwd>/<prefix><stem><suffix>.mp4`, recreando subcarpetas si `--recursive` (D27 cerrado 2026-09-13, opción A: `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; fuera de cwd → solo `stem` + aviso `-v`).
   3. Por defecto: junto al original como `<stem><suffix>.mp4` con `suffix=_denoised`, `prefix=""`.
+  3b. (D_e cerrado 2026-09-13, opción C) Si 2+ entradas del lote resuelven al MISMO path de salida (`a.mp4`+`a.mov`→`a_denoised.mp4`), el 2º y siguientes reciben auto-sufijo incremental `_1`, `_2`... (`a_denoised_1.mp4`) con aviso SIEMPRE a `stderr` (no solo `-v`); aplica a las 3 reglas de precedencia. `--dry-run` muestra las salidas desempatadas ya en la tabla.
   4. (D12 cerrado 2026-09-13; D26 cerrado 2026-09-13: renumerado 4-7) `-o/--output` y `--output-dir` mutuamente excluyentes vía `clap(conflicts_with)`; combinación → `E_INVALID_INPUT` exit `2`, sin escribir disco.
   5. Colisión sin `--overwrite`: error salvo `--skip-existing` (marca `skipped`, exit 0).
   6. (D7 cerrado) Directorios padre de `-o/--output`, `--output-dir` y `--model-dir` se crean siempre; si no creables → `E_IO`.
@@ -98,7 +100,7 @@ expandir → validar extensión/existencia → resolver salida (puras, sin I/O)
   → colisión? → has_audio? → modelo listo?
   → [1-5%] ffmpeg extract mono 48k a TMP.in.wav
   → [6-80%] df::denoise() por chunks 60s/1s con callback (d,t)
-  → [81-95%] ffmpeg remux copy+AAC a OUT.part.mp4 → rename a OUT.mp4 (POSIX atómico con reemplazo; Win con `--overwrite` remove previo + rename, sin overwrite falla si existe)
+  → [81-95%] ffmpeg remux copy+AAC a OUT.part.mp4 (-t <dur_video>, D_d) → rename a OUT.mp4 (atómico con reemplazo en POSIX y Win — `MoveFileExW REPLACE_EXISTING`, D_j cerrado 2026-09-13; la no-sobrescritura sin `--overwrite` la garantiza el colisión-check previo, no el rename)
   → [96-99%] verificar OUT existe y >0B + duración ±0.5s + Audio AAC → limpiar temps → [100%] report {ok,failed,skipped}
 ```
 
@@ -117,13 +119,15 @@ Comandos ffmpeg exactos a reimplementar:
 ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav
 
 # 2. Remux (video intacto, audio limpio a AAC con bitrate parametrizable)
+# D_d cerrado 2026-09-13, opción A: -t <dur_video> sustituye a -shortest; la duración
+# del video manda siempre (si el audio limpio es más corto, la cola queda muda, no se pierde video)
 ffmpeg -y -v error -i IN -i TMP.out.wav
-  -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <audio-bitrate>k -shortest OUT.mp4
+  -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <audio-bitrate>k -t <dur_video> OUT.mp4
 ```
 
 Detección de audio: `ffmpeg -hide_banner -i IN` contiene `Audio:`. Sin audio → error `E_NO_AUDIO`, no se genera salida.
 
-Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `-v` debug (D31 cerrado 2026-09-13: con `-v` se conservan `.wav`/`.part` para inspeccionar). Handler `ctrlc` → `Child::kill` (`ffmpeg`) + aborto cooperativo de `ort` entre chunks (latencia máx 1 chunk en curso), borra `.part` + temps, `exit 3` (2º `Ctrl+C` fuerza salida inmediata); en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX. Fallos de escritura → `E_IO`.
+Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `-v` debug (D31 cerrado 2026-09-13: con `-v` se conservan `.wav`/`.part` para inspeccionar). Handler `ctrlc` → `Child::kill` (`ffmpeg`) + aborto cooperativo de `ort` entre chunks (latencia máx 1 chunk en curso), borra `.part` + temps, `exit 3` (2º `Ctrl+C` fuerza salida inmediata); la cancelación también aplica durante la descarga del modelo: flag atómico consultado entre retries + guardia `Drop` que borra el `.part` de la descarga (D_i cerrado 2026-09-13); en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX. Fallos de escritura → `E_IO`.
 
 ## 6. Módulo `df/` — especificación DSP (no cambiar valores)
 
@@ -149,18 +153,18 @@ Secuencia por chunk:
 5. Alineación `k+LOOKAHEAD`, `out = spec*(mask@erb_inv)`; deep-filter taps `k-2..k+2` en bins `0..96` si `lsnr<=20`; si `lsnr>35` intacto; si `lsnr<-15` mute (D37 opción B).
 6. `iSTFT * FFT * ventana`, overlap-add, recorte `HOP:HOP+n`, crossfade entre chunks.
 
-Criterio de fidelidad: `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` y `SI-SDR(denoised,referencia_dfn3) >=60dB` (bloqueante, D9 cerrado + D30 cerrado 2026-09-13: estricto sin relajación; 55-59dB también bloquea). Vectores deterministas en `tests/data/` versionados en git, generados solo manualmente con `examples/gen_vectors.rs` (D39 cerrado 2026-09-13, opción A: `cargo run --example gen_vectors`; nunca en `cargo test` ni CI, preserva el congelado D14): seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` (`voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` D14: generada una vez con el propio port tras validar mejora, luego congelada; D37 invalida refs previas: regenerar una única vez con nuevos umbrales D37 y recongelar) + par largo `440Hz 65s seed 1` (`voz65s.wav`, `mezcla65s10dB.wav`, `referencia65s_dfn3.wav`) para 2 chunks + crossfade (misma regla D14/D37). `SI-SDR` implementado Rust puro en `tests/common/si_sdr.rs` (zero-mean, `eps=1e-8`). Cualquier desviación bajo umbrales = bug bloqueante. Referencias informativas: `~77dB` paridad, `20.8dB` pipeline oficial.
+Criterio de fidelidad: `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` y `SI-SDR(denoised,referencia_dfn3) >=60dB` (bloqueante, D9 cerrado + D30 cerrado 2026-09-13: estricto sin relajación; 55-59dB también bloquea). Vectores deterministas en `tests/data/` versionados en git, generados solo manualmente con `examples/gen_vectors.rs` (D39 cerrado 2026-09-13, opción A: `cargo run --example gen_vectors`; nunca en `cargo test` ni CI, preserva el congelado D14): seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` (`voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` D14: generada una vez con el propio port tras validar mejora, luego congelada; D37 invalida refs previas: regenerar una única vez con nuevos umbrales D37 y recongelar) + par largo `440Hz 65s seed 1` (`voz65s.wav`, `mezcla65s10dB.wav`, `referencia65s_dfn3.wav`) para 2 chunks + crossfade (misma regla D14/D37). `SI-SDR` implementado Rust puro en `tests/common/si_sdr.rs` (zero-mean, `eps=1e-8`; cada test lo declara con `#[path = "common/si_sdr.rs"] mod si_sdr;`, D_h cerrado 2026-09-13). Cualquier desviación bajo umbrales = bug bloqueante. Referencias informativas: `~77dB` paridad, `20.8dB` pipeline oficial.
 
 ## 7. Módulo `models.rs` — modelo autocontenido
 
 * Artefactos: `dfn3_enc.onnx`, `dfn3_erb_dec.onnx`, `dfn3_df_dec.onnx` (~8MB total, tarball `7983136B`).
 * Origen único: `https://github.com/Rikorose/DeepFilterNet/raw/v0.5.6/models/DeepFilterNet3_onnx.tar.gz` (D2 cerrado-verificado 2026-09-13 en `docs/plan.md T2.0`: URL canónica devuelve 200 con 7983136B exactos; no se canoniza `releases/download`), miembros `tmp/export/{enc,erb_dec,df_dec}.onnx` (+`config.ini` presente ignorado). Verificación: tamaño `7983136B >=98%` siempre + `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` obligatorio y mismatch → `E_MODEL_MISSING`; SHA verificado 2026-09-13 vía `Invoke-WebRequest` + `Get-FileHash`/`tar -tzf` y registrado en `docs/specifications.md RF-06/RNF-05` + este `§7` (D1 cerrado definitivo, fin de la política interina).
 * Cache: `--model-dir` (defecto `~/.cache/denoise/models/` vía `home_dir()+.cache` + `PathBuf` en Win/macOS/Linux) (D8 cerrado; D16: todo `denoise`). (D7 cerrado) Directorios padre de `-o/--output`/`--output-dir`/`--model-dir` se crean siempre; si no creables → `E_IO`.
-* Comportamiento: si faltan → descarga con `User-Agent: denoise/1.0.0` (D16: todo `denoise`), progreso `indicatif`, verificación tamaño + SHA, extracción `tar.gz`, borrado archivo. `timeout 30s + retry 3 con backoff`, anti `tar-slip` (solo miembros `tmp/export/{enc,erb_dec,df_dec}.onnx`, rechaza `..`/absolutos), chequeo espacio >=50MB libres en disco de `--model-dir` vía `sysinfo` antes de descargar (D17 + D29 cerrado 2026-09-13: solo `model-dir`; `OUT/temps` → `E_IO` al fallar escritura), `.part + rename` (Win `remove` previo si existe). Si la descarga falla por red/modelo (timeout, HTTP, tamaño, SHA, tar-slip) → error `E_MODEL_MISSING` con URL y ruta manual esperada (disco → `E_IO`). (D24 cerrado 2026-09-13). Sesiones `ort` `CPUExecutionProvider` (binarios vía `download-binaries`), cacheadas (`Mutex`), un lock de inferencia. `reqwest blocking` sin dependencia directa a `tokio` (D15 + D32 cerrado 2026-09-13).
+* Comportamiento: si faltan → descarga con `User-Agent: denoise/1.0.0` (D16: todo `denoise`), progreso `indicatif`, verificación tamaño + SHA, extracción `tar.gz`, borrado archivo. `timeout 30s + retry 3 con backoff`, anti `tar-slip` (solo miembros `tmp/export/{enc,erb_dec,df_dec}.onnx`, rechaza `..`/absolutos), chequeo espacio >=50MB libres en disco de `--model-dir` vía `sysinfo` antes de descargar (D17 + D29 cerrado 2026-09-13: solo `model-dir`; `OUT/temps` → `E_IO` al fallar escritura), `.part + rename` (rename atómico con reemplazo en POSIX/Win, sin `remove_file` previo — mismo criterio D_j del remux). Si la descarga falla por red/modelo (timeout, HTTP, tamaño, SHA, tar-slip) → error `E_MODEL_MISSING` con URL y ruta manual esperada (disco → `E_IO`). (D24 cerrado 2026-09-13). Sesiones `ort` `CPUExecutionProvider` (binarios vía `download-binaries`), cacheadas (`Mutex`), un lock de inferencia. `reqwest blocking` sin dependencia directa a `tokio` (D15 + D32 cerrado 2026-09-13); TLS vía `rustls-tls-webpki-roots` — raíces Mozilla empaquetadas, sin OpenSSL del sistema (D_a cerrado 2026-09-13: sustituye `rustls-tls-manual-roots`, que habilitaba TLS sin raíces de confianza y rompía la descarga desde github.com; coherente con `ort tls-rustls` D36).
 
 ## 8. Módulo `ffmpeg_io.rs` + errores
 
-Resolución: `--ffmpeg-path` → crate `which` en `PATH` (con `PATHEXT` en Win) → error `E_FFMPEG_NOT_FOUND`. Requiere `ffmpeg 6+`, verificado con `ffmpeg -version` con regex `ffmpeg version (\d+)\.` (major>=6, `from_utf8_lossy`), sin `ffprobe` (probe y `has_audio` vía `ffmpeg -hide_banner -i`). Receta por OS en `README.md`: Win `winget install Gyan.FFmpeg` / `choco install ffmpeg`, macOS `brew install ffmpeg`, Linux `apt install ffmpeg`.
+Resolución: `--ffmpeg-path` → crate `which` en `PATH` (con `PATHEXT` en Win) → error `E_FFMPEG_NOT_FOUND`. Requiere `ffmpeg 6+`, verificado con `ffmpeg -version` con regex `ffmpeg version (\d+)\.` (major>=6, `from_utf8_lossy`), con fallback a prefijo `N-` (build git BtbN/gyan, aceptado como válido; si tampoco matchea → `E_FFMPEG_NOT_FOUND` con línea de versión cruda en el mensaje, D_c cerrado 2026-09-13), sin `ffprobe` (probe y `has_audio` vía `ffmpeg -hide_banner -i`). Receta por OS en `README.md`: Win `winget install Gyan.FFmpeg` / `choco install ffmpeg`, macOS `brew install ffmpeg`, Linux `apt install ffmpeg`.
 
 Taxonomía estable (código → exit):
 * `E_INVALID_INPUT` → 2: ruta inexistente, extensión no soportada, `0B`, `bitrate` fuera de `64-320`, `-o` con lote expandido `>1` (D20), `-o/--output` + `--output-dir` juntos (D12), `prefix+suffix` ambos vacíos con salida in-place, directorio sin videos/lote vacío. (D6 cerrado) Solo-audio/corrupto en probe también `E_INVALID_INPUT`; `E_FFMPEG_FAILED` solo en `extract/remux`. (D35: `-o` sin `.mp4` no es error, se auto-añade).
@@ -183,7 +187,7 @@ Reporte dinámico pero ordenado (sin nuevos flags):
 * Humano sin TTY/CI: sin animación (`hidden()`), líneas ` [i/N] name ... 45% msg` cada cambio de fase.
 * `-v`: `log + env_logger` (`info`/`debug`), añade a `stderr` comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños `in.wav/out.wav`, y conserva temps.
 * `--json`: desactiva animación; `stdout` = `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct` según mapeo `0/1-5/6-80/81-95/96-99/100`, `summary` sin `pct`); progreso humano suprimido. Parseable con `jq`. Ver `docs/specifications.md RF-08`. (D38 cerrado 2026-09-13, opción A: `--json + -v` combinables —debug a `stderr` + conserva `.wav`/`.part`, `stdout` intacto).
-* `--dry-run`: tabla `input → output (skip: motivo)` sin escribir/crear nada, mismo orden que el lote real, solo lectura `stat` para colisión; sin `ffmpeg/modelo/has_audio` (D23 + D25 cerrado 2026-09-13) (con `--json` emite `JSONL` con `status="dry-run" pct=0`). (D5 cerrado) Exit `0` siempre en `--dry-run`.
+* `--dry-run`: tabla `input → output (skip: motivo)` sin escribir/crear nada, mismo orden que el lote real, solo lectura `stat` para colisión; sin `ffmpeg/modelo/has_audio` (D23 + D25 cerrado 2026-09-13) (con `--json` emite `JSONL` con `status="dry-run" pct=0`). (D5 cerrado, refinado por D_f cerrado 2026-09-13, opción A: exit `0` con CLI estructuralmente válida; errores estructurales —D12/D20/bitrate/D33/lote vacío— fallan antes de simular con exit `2` sin reporte; per-archivo se reporta con exit `0`).
 * `--version`: imprime `denoise 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` desde `Cargo.toml` vía `env!("CARGO_PKG_VERSION")` (D16: todo `denoise`) (sin `ffmpeg` imprime `ffmpeg missing`). Ver `docs/specifications.md RF-10`.
 
 Ejemplo humano:
