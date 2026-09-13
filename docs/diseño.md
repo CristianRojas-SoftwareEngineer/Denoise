@@ -72,12 +72,12 @@ denoise INPUT... [-o/--output OUT | --output-dir DIR] [--prefix STR] [--suffix S
 * `--audio-bitrate`: bitrate AAC de salida en kbps (defecto `192`, rango `64-320`).
 * Reglas de salida (precedencia, alternativas excluyentes por D12):
   1. Si lote expandido==1 y `-o/--output OUT`: ese archivo exacto (D10: forma canónica `-o/--output`; D20: vale `INPUT` archivo o directorio que expande a 1 video).
-  2. Si `--output-dir DIR`: `DIR/<prefix><stem><suffix>.mp4`, recreando subcarpetas si `--recursive`.
+  2. Si `--output-dir DIR`: `DIR/<relativo-a-cwd>/<prefix><stem><suffix>.mp4`, recreando subcarpetas si `--recursive` (D27 cerrado 2026-09-13, opción A: `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; fuera de cwd → solo `stem` + aviso `-v`).
   3. Por defecto: junto al original como `<stem><suffix>.mp4` con `suffix=_denoised`, `prefix=""`.
-  4. (D12 cerrado 2026-09-13) `-o/--output` y `--output-dir` mutuamente excluyentes vía `clap(conflicts_with)`; combinación → `E_INVALID_INPUT` exit `2`, sin tocar disco.
-  4. Colisión sin `--overwrite`: error salvo `--skip-existing` (marca `skipped`, exit 0).
-  5. (D7 cerrado) Directorios padre de `-o/--output`, `--output-dir` y `--model-dir` se crean siempre; si no creables → `E_IO`.
-  6. `prefix/suffix` solo `[A-Za-z0-9._-]`; no ambos vacíos si salida in-place. `-o/--output` que resuelve a la propia entrada → warning a `stderr`.
+  4. (D12 cerrado 2026-09-13; D26 cerrado 2026-09-13: renumerado 4-7) `-o/--output` y `--output-dir` mutuamente excluyentes vía `clap(conflicts_with)`; combinación → `E_INVALID_INPUT` exit `2`, sin escribir disco.
+  5. Colisión sin `--overwrite`: error salvo `--skip-existing` (marca `skipped`, exit 0).
+  6. (D7 cerrado) Directorios padre de `-o/--output`, `--output-dir` y `--model-dir` se crean siempre; si no creables → `E_IO`.
+  7. `prefix/suffix` solo `[A-Za-z0-9._-]`, prohibidos `.` y `..` exactos; no ambos vacíos si salida in-place. `-o/--output` que resuelve a la propia entrada sin `prefix/suffix` efectivo → warning a `stderr` (D33 cerrado 2026-09-13).
 * Ejemplos:
   * `denoise boda.mp4`
   * `denoise boda.mp4 --prefix pod- --suffix _clean --audio-bitrate 128`
@@ -95,7 +95,7 @@ expandir → validar extensión/existencia → resolver salida (puras, sin I/O)
 ```
 
 Responsabilidades estrictas:
-* `cli.rs`: parseo `clap`, expansión determinista byte-wise UTF-8 (D21), `resolve_output()` pura, bucle lote secuencial, reporte. No DSP. La expansión excluye `--output-dir` si está dentro de `INPUT` + aviso en `-v`. (D4 cerrado) Excluye además `*<suffix>.mp4` vigente en escaneos `--recursive` + aviso en `-v`.
+* `cli.rs`: parseo `clap`, expansión determinista byte-wise UTF-8 (D21), dedup por absoluto lexical contra cwd sin resolver symlinks (D28 cerrado 2026-09-13; case-insensitive solo Win), `resolve_output()` pura, bucle lote secuencial, reporte. No DSP. La expansión excluye `--output-dir` si está dentro de `INPUT` + aviso en `-v`. (D4 cerrado) Excluye además `*<suffix>.mp4` vigente en escaneos `--recursive` + aviso en `-v`.
 * `pipeline.rs`: orquesta un video, traduce progreso a `0-100` según mapeo de §8 de este documento, garantiza limpieza + borrado parcial en error/`Ctrl+C`. Verificación ligera runtime: `>0B + duración ±0.5s + Audio AAC presente`.
 * `df.rs`: solo `ndarray+rustfft+ort`, firma `denoise_wav(in_wav: &Path, out_wav: &Path, progress_cb)`. Sin `Command`, sin `println!` en núcleo. I/O WAV con `hound` PCM16 ↔ `f32` (`/32768.0`, clip antes de `i16`).
 * `ffmpeg_io.rs`: `find_ffmpeg()` (vía crate `which`, con `PATHEXT` en Win), `has_audio()`, `extract_mono48k()`, `remux_copy()`, `verify_output_ligero()`. Todo `Command` argv, `String::from_utf8_lossy`.
@@ -115,7 +115,7 @@ ffmpeg -y -v error -i IN -i TMP.out.wav
 
 Detección de audio: `ffmpeg -hide_banner -i IN` contiene `Audio:`. Sin audio → error `E_NO_AUDIO`, no se genera salida.
 
-Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos; con `-v` se conservan para debug. Handler `ctrlc` → `Child::kill` (`ffmpeg`) + aborto cooperativo de `ort` entre chunks (latencia máx 1 chunk en curso), borra `.part` + temps, `exit 3` (2º `Ctrl+C` fuerza salida inmediata); en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX. Fallos de escritura → `E_IO`.
+Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `-v` debug (D31 cerrado 2026-09-13: con `-v` se conservan `.wav`/`.part` para inspeccionar). Handler `ctrlc` → `Child::kill` (`ffmpeg`) + aborto cooperativo de `ort` entre chunks (latencia máx 1 chunk en curso), borra `.part` + temps, `exit 3` (2º `Ctrl+C` fuerza salida inmediata); en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX. Fallos de escritura → `E_IO`.
 
 ## 6. Módulo `df.rs` — especificación DSP (no cambiar valores)
 
@@ -141,14 +141,14 @@ Secuencia por chunk:
 5. Alineación `k+LOOKAHEAD`, `out = spec*(mask@erb_inv)`; deep-filter taps `k-2..k+2` en bins `0..96` si `lsnr<=20`; si `lsnr>30` intacto; si `lsnr<-10` mute.
 6. `iSTFT * FFT * ventana`, overlap-add, recorte `HOP:HOP+n`, crossfade entre chunks.
 
-Criterio de fidelidad: `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` y `SI-SDR(denoised,referencia_dfn3) >=60dB` (bloqueante, D9 cerrado: estricto sin relajación; 55-59dB también bloquea). Vectores deterministas en `tests/data/`: seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` (`voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` D14: generada una vez con el propio port tras validar mejora, luego congelada). `SI-SDR` implementado Rust puro en `tests/common/si_sdr.rs` (zero-mean, `eps=1e-8`). Cualquier desviación bajo umbrales = bug bloqueante. Referencias informativas: `~77dB` paridad, `20.8dB` pipeline oficial.
+Criterio de fidelidad: `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` y `SI-SDR(denoised,referencia_dfn3) >=60dB` (bloqueante, D9 cerrado + D30 cerrado 2026-09-13: estricto sin relajación; 55-59dB también bloquea). Vectores deterministas en `tests/data/`: seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` (`voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` D14: generada una vez con el propio port tras validar mejora, luego congelada) + par largo `440Hz 65s seed 1` (`voz65s.wav`, `mezcla65s10dB.wav`, `referencia65s_dfn3.wav`) para 2 chunks + crossfade. `SI-SDR` implementado Rust puro en `tests/common/si_sdr.rs` (zero-mean, `eps=1e-8`). Cualquier desviación bajo umbrales = bug bloqueante. Referencias informativas: `~77dB` paridad, `20.8dB` pipeline oficial.
 
 ## 7. Módulo `models.rs` — modelo autocontenido
 
 * Artefactos: `dfn3_enc.onnx`, `dfn3_erb_dec.onnx`, `dfn3_df_dec.onnx` (~8MB total, tarball `7983136B`).
 * Origen único: `https://github.com/Rikorose/DeepFilterNet/raw/v0.5.6/models/DeepFilterNet3_onnx.tar.gz` (D2 cerrado-verificado 2026-09-13 en `docs/plan.md T2.0`: URL canónica devuelve 200 con 7983136B exactos; no se canoniza `releases/download`), miembros `tmp/export/{enc,erb_dec,df_dec}.onnx` (+`config.ini` presente ignorado). Verificación: tamaño `7983136B >=98%` siempre + `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` obligatorio y mismatch → `E_MODEL_MISSING`; SHA verificado 2026-09-13 vía `Invoke-WebRequest` + `Get-FileHash`/`tar -tzf` y registrado en `docs/especificaciones.md RF-06/RNF-05` + este `§7` (D1 cerrado definitivo, fin de la política interina).
 * Cache: `--model-dir` (defecto `~/.cache/denoise/models/` vía `home_dir()+.cache` + `PathBuf` en Win/macOS/Linux) (D8 cerrado; D16: todo `denoise`). (D7 cerrado) Directorios padre de `-o/--output`/`--output-dir`/`--model-dir` se crean siempre; si no creables → `E_IO`.
-* Comportamiento: si faltan → descarga con `User-Agent: denoise/1.0.0` (D16: todo `denoise`), progreso `indicatif`, verificación tamaño + SHA, extracción `tar.gz`, borrado archivo. `timeout 30s + retry 3 con backoff`, anti `tar-slip` (solo miembros `tmp/export/{enc,erb_dec,df_dec}.onnx`, rechaza `..`/absolutos), chequeo espacio disco >=50MB libres vía `sysinfo` antes de descargar (D17; si no → `E_IO`), `.part + rename` (Win `remove` previo si existe). Si la descarga falla → error `E_MODEL_MISSING` con URL y ruta manual esperada (disco → `E_IO`). Sesiones `ort` `CPUExecutionProvider` (binarios vía `download-binaries`), cacheadas (`Mutex`), un lock de inferencia. `reqwest blocking` sin `tokio` (D15).
+* Comportamiento: si faltan → descarga con `User-Agent: denoise/1.0.0` (D16: todo `denoise`), progreso `indicatif`, verificación tamaño + SHA, extracción `tar.gz`, borrado archivo. `timeout 30s + retry 3 con backoff`, anti `tar-slip` (solo miembros `tmp/export/{enc,erb_dec,df_dec}.onnx`, rechaza `..`/absolutos), chequeo espacio >=50MB libres en disco de `--model-dir` vía `sysinfo` antes de descargar (D17 + D29 cerrado 2026-09-13: solo `model-dir`; `OUT/temps` → `E_IO` al fallar escritura), `.part + rename` (Win `remove` previo si existe). Si la descarga falla por red/modelo (timeout, HTTP, tamaño, SHA, tar-slip) → error `E_MODEL_MISSING` con URL y ruta manual esperada (disco → `E_IO`). (D24 cerrado 2026-09-13). Sesiones `ort` `CPUExecutionProvider` (binarios vía `download-binaries`), cacheadas (`Mutex`), un lock de inferencia. `reqwest blocking` sin dependencia directa a `tokio` (D15 + D32 cerrado 2026-09-13).
 
 ## 8. Módulo `ffmpeg_io.rs` + errores
 
@@ -175,7 +175,7 @@ Reporte dinámico pero ordenado (sin nuevos flags):
 * Humano sin TTY/CI: sin animación (`hidden()`), líneas ` [i/N] name ... 45% msg` cada cambio de fase.
 * `-v`: `log + env_logger` (`info`/`debug`), añade a `stderr` comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños `in.wav/out.wav`, y conserva temps.
 * `--json`: desactiva animación; `stdout` = `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct` según mapeo `0/1-5/6-80/81-95/96-99/100`, `summary` sin `pct`); progreso humano suprimido. Parseable con `jq`. Ver `docs/especificaciones.md RF-08`.
-* `--dry-run`: tabla `input → output (skip: motivo)` sin crear nada, mismo orden que el lote real, puro sin I/O (D23: sin `ffmpeg/modelo/has_audio`) (con `--json` emite `JSONL` con `status="dry-run" pct=0`). (D5 cerrado) Exit `0` siempre en `--dry-run`.
+* `--dry-run`: tabla `input → output (skip: motivo)` sin escribir/crear nada, mismo orden que el lote real, solo lectura `stat` para colisión; sin `ffmpeg/modelo/has_audio` (D23 + D25 cerrado 2026-09-13) (con `--json` emite `JSONL` con `status="dry-run" pct=0`). (D5 cerrado) Exit `0` siempre en `--dry-run`.
 * `--version`: imprime `denoise 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` desde `Cargo.toml` vía `env!("CARGO_PKG_VERSION")` (D16: todo `denoise`) (sin `ffmpeg` imprime `ffmpeg missing`). Ver `docs/especificaciones.md RF-10`.
 
 Ejemplo humano:
@@ -194,8 +194,8 @@ Summary: ok=4 failed=1 skipped=0
 
 ## 10. Plan de verificación mínima
 
-1. `test_naming` (rápido, sin ffmpeg/red): 1 archivo, N archivos, `--output-dir`, `prefix/suffix`, `-o/--output` solo lote==1 → error si lote `>1` (D20; vale dir con 1 video), colisión + `overwrite/skip`, `--recursive` recrea árbol + exclusión output anidado + exclusión `*<suffix>.mp4` (D4), caracteres inválidos → `E_INVALID_INPUT`.
-2. `test_golden` (`#[ignore]` slow): generador Rust (`rand StdRng seed 0` + Box-Muller, `hound`): seno `440Hz 3s` + ruido blanco `SNR 10dB`, `seed 0`, `SR 48k` mono `f32` en `tests/data/` → `mejora >=5dB` y `paridad vs referencia >=60dB` (refs informativas `+5dB` / `20.8dB` / `~77dB`). Falla si DSP difiere.
+1. `test_naming` (rápido, sin ffmpeg/red): 1 archivo, N archivos, `--output-dir`, `prefix/suffix`, `-o/--output` solo lote==1 → error si lote `>1` (D20; vale dir con 1 video), colisión + `overwrite/skip`, `--recursive` recrea árbol relativo a cwd (D27: 2 dirs mismo `sub/x.mp4` → 2 salidas) + dedup lexical D28 + exclusión output anidado + exclusión `*<suffix>.mp4` (D4), caracteres inválidos + `.`/`..` (D33) → `E_INVALID_INPUT`.
+2. `test_golden` (`#[ignore]` slow): generador Rust (`rand StdRng seed 0/1` + Box-Muller, `hound`): seno `440Hz 3s` y `65s` + ruido blanco `SNR 10dB`, `SR 48k` mono `f32` en `tests/data/` → `mejora >=5dB` y `paridad vs referencia >=60dB` en ambos pares (D30). Falla si DSP difiere.
 3. `test_remux` (`#[ignore]` slow): fixture `ffmpeg -y -v error -f lavfi -i testsrc=size=640x480:rate=30:duration=5 -f lavfi -i sine=frequency=440:sample_rate=48000:duration=5 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k -shortest fixture.mp4` → mismo `vcodec/res/fps`, duración `±0.2s`, `acodec=aac,sr=48000,bitrate±10%`, sin re-encode: `vcodec`/`res`/`fps`/`extradata` iguales + `sha256` de `ffmpeg -y -v error -i OUT.mp4 -map 0:v:0 -c copy -f h264 -` idéntico al de la entrada (prohibido comparar tamaño fichero total).
 4. `test_errors`: sin audio/solo-video → `E_NO_AUDIO`; solo-audio/corrupto en probe → `E_INVALID_INPUT` (D6); ffmpeg ausente → `E_FFMPEG_NOT_FOUND`; descarga rota → `E_MODEL_MISSING`; destino existe → `E_OUTPUT_EXISTS`/`skipped`; `bitrate 9999` → `E_INVALID_INPUT`; disco/sin permiso/`-o/--output`/`--output-dir`/`--model-dir` no creables → `E_IO` (D7). Nada parcial en disco.
 5. `test_reporter`: lote 3 simulado verifica orden `[1/3..3/3]`, `JSONL` parseable, resumen `ok/failed/skipped`, sin animación con `--json` o sin TTY.
