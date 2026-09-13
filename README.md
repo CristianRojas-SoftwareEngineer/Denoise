@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust: 1.88+](https://img.shields.io/badge/Rust-1.88%2B-orange.svg)](https://www.rust-lang.org/)
-[![Release: v1.0.0](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/CristianRojas-SoftwareEngineer/Noise-Remover/releases/tag/v1.0.0)
+[![Release: v1.0.0](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/CristianRojas-SoftwareEngineer/Denoise/releases/tag/v1.0.0)
 
 **`denoise`** es una herramienta de línea de comandos de alto rendimiento, autocontenida y multiplataforma escrita en **Rust**, diseñada para suprimir ruido de fondo y maximizar la inteligibilidad de la voz en grabaciones de video mediante redes neuronales profundas (**DeepFilterNet3 ONNX** + **ONNX Runtime CPU**).
 
@@ -17,8 +17,8 @@ En menos de un minuto puedes tener la herramienta compilada y procesando tu prim
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/CristianRojas-SoftwareEngineer/Noise-Remover.git
-cd Noise-Remover
+git clone https://github.com/CristianRojas-SoftwareEngineer/Denoise.git
+cd Denoise
 
 # 2. Compilar binario optimizado
 cargo build --release
