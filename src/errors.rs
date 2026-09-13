@@ -27,11 +27,13 @@ pub enum E {
 
 impl E {
     /// Código de salida asociado al error.
-    /// `EIo → 1`; ver `specifications.md RNF-06`.
+    /// ECancelled → 3, EInvalidInput/EOutputExists/ENoAudio → 2,
+    /// EFfmpegNotFound/EModelMissing/EFfmpegFailed/EIo → 1.
     pub fn exit_code(&self) -> i32 {
         match self {
-            E::EIo(_) => 1,
-            _ => 1,
+            E::ECancelled => 3,
+            E::EInvalidInput(_) | E::EOutputExists(_) | E::ENoAudio => 2,
+            E::EFfmpegNotFound | E::EModelMissing(_) | E::EFfmpegFailed(_) | E::EIo(_) => 1,
         }
     }
 }
