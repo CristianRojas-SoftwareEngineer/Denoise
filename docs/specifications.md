@@ -22,8 +22,8 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * **ID:** RF-02. **Prioridad:** Alta.
 * Si `INPUT` es directorio: expande a videos `mp4/mov/mkv/webm/avi` según `--recursive`.
 * Orden determinista byte-wise UTF-8 del path absoluto (D21 cerrado). Sin duplicados tras expandir (absoluto lexical D28, case-insensitive solo en Win vía `to_lowercase`).
-* Si `--output-dir` está dentro de un `INPUT` directorio con `--recursive`, sus contenidos se excluyen del escaneo y se avisa en `-v`; evita loop infinito en re-corridas.
-* (D4 cerrado) En escaneo con `--recursive` se excluyen además los ficheros que ya terminan en `<suffix>.mp4` vigente (por defecto `*_denoised.mp4`) y se avisa en `-v`; evita generar `*_denoised_denoised.mp4` en re-corridas in-place.
+* Si `--output-dir` está dentro de un `INPUT` directorio con `--recursive`, sus contenidos se excluyen del escaneo y se avisa en `--verbose`; evita loop infinito en re-corridas.
+* (D4 cerrado) En escaneo con `--recursive` se excluyen además los ficheros que ya terminan en `<suffix>.mp4` vigente (por defecto `*_denoised.mp4`) y se avisa en `--verbose`; evita generar `*_denoised_denoised.mp4` en re-corridas in-place.
 * **Aceptación:** `denoise ./crudos/ --recursive` procesa incluyendo subcarpetas, en orden estable.
 
 ### RF-03 Salida parametrizable: nombre, directorio, prefijo, sufijo
@@ -31,7 +31,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * Flags: `-o/--output-name NAME` (solo si lote expandido ==1 video; D20 cerrado: `--output-name` con lote>1 → `E_INVALID_INPUT`), `--output-dir DIR`, `--prefix STR`, `--suffix STR (defecto `_denoised`)`. `--output-name` y `--output-dir` son COMPLEMENTARIOS (D_o cerrado 2026-09-13): `--output-name` define el nombre base, `--output-dir` el directorio; si `--output-dir` falta se usa cwd. (D35 cerrado 2026-09-13, revisado: si `--output-name` no termina en `.mp4` case-insensitive se añade `.mp4` automáticamente; ej. `--output-name final` → `final.mp4`).
 * Precedencia: `1) --output-name en DIR (--output-dir o cwd) con auto-.mp4 D35 > 2) --output-dir/<relativo-cwd>/<prefix><stem><suffix>.mp4 recreando árbol si --recursive (D27) > 3) junto al original`. `--output-name` sin `--output-dir` → DIR=cwd. (D_e cerrado 2026-09-13, opción C: si 2+ entradas del lote resuelven al MISMO path de salida —p.ej. `a.mp4`+`a.mov`→`a_denoised.mp4`— se aplica auto-sufijo incremental al 2º y siguientes: `a_denoised_1.mp4`, `a_denoised_2.mp4`..., con aviso SIEMPRE a `stderr`/`message` no solo `-v`; el reporte lista cada salida real).
 * (D7 cerrado) Se crean directorios padre automáticamente para `--output-name`, `--output-dir` y `--model-dir`; si no creables → `E_IO`.
-* `--recursive` + `--output-dir` recrea árbol relativo a cwd (D27 cerrado 2026-09-13, opción A): `DIR/<ruta-dada-relativa-a-cwd>/<prefix><stem><suffix>.mp4`; ej. `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; archivo suelto `a.mp4 → out/a_denoised.mp4`; absoluto fuera de cwd → solo `stem` + aviso `-v`. La exclusión aplica si `DIR` está dentro de `INPUT`.
+* `--recursive` + `--output-dir` recrea árbol relativo a cwd (D27 cerrado 2026-09-13, opción A): `DIR/<ruta-dada-relativa-a-cwd>/<prefix><stem><suffix>.mp4`; ej. `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; archivo suelto `a.mp4 → out/a_denoised.mp4`; absoluto fuera de cwd → solo `stem` + aviso `--verbose`. La exclusión aplica si `DIR` está dentro de `INPUT`.
 * `prefix/suffix` solo caracteres `[A-Za-z0-9._-]`, prohibidos `.` y `..` exactos (D33 cerrado 2026-09-13); vacío permitido para uno de los dos, no ambos vacíos si salida es mismo directorio que entrada (evita sobrescribirse). Remux vía `OUT.part.mp4` + rename atómico: `std::fs::rename` reemplaza atómicamente el destino tanto en POSIX como en Win (`MoveFileExW` + `REPLACE_EXISTING`, D_j cerrado 2026-09-13: corrige la afirmación previa «Win sin `--overwrite` falla si existe», que era fácticamente incorrecta; la garantía de no-sobrescritura descansa EXCLUSIVAMENTE en el colisión-check previo de RF-04 `E_OUTPUT_EXISTS`/`skipped`). I/O WAV con `hound` PCM16 + `f32` (`i16→f32 /32768.0` y vuelta con clip); `ffmpeg` produce/consume `PCM16 48k mono`.
 * `--audio-bitrate` no afecta al nombre (ver RF-05B). `--output-name` que resuelve a la propia entrada sin `prefix/suffix` efectivo → `E_INVALID_INPUT` exit `2` SIEMPRE, incluso con `--overwrite` (D_p cerrado 2026-09-13: endurecido —se elimina el warning condicionado de D33—).
 * **Aceptación:**
@@ -39,6 +39,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
   * `denoise boda.mp4 --prefix pod- --suffix _clean` → `pod-boda_clean.mp4`
   * `denoise a.mp4 --output-name final` → `final.mp4` (cwd)
   * `denoise a.mp4 --output-name final --output-dir limpio` → `limpio/final.mp4`
+  * `denoise a.mp4 --verbose` → salida de debug `stderr` sin modificar salida
 
 ### RF-04 No sobrescribir por defecto
 * **ID:** RF-04. **Prioridad:** Alta.
@@ -75,20 +76,20 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * Procesamiento secuencial; un fallo no aborta lote (salvo `Ctrl+C`). Resumen final `ok=N failed=N skipped=N`.
 * `--dry-run`: solo lista `input → output (skip: motivo)` sin escribir/crear nada ni invocar IA/ffmpeg, en el mismo orden del lote real. Solo lectura `stat` para colisión-check; sin `ffmpeg/modelo/has_audio` (D23 cerrado + D25 cerrado 2026-09-13: `dry-run` = expandir+resolver+colisión por lectura, cero escrituras). (D5 cerrado 2026-09-13, refinado por D_f cerrado 2026-09-13, opción A: exit `0` SIEMPRE que la CLI sea estructuralmente válida; errores estructurales —D_o flags inválidos/combinados (e.g. `--output-name` con lote>1), bitrate fuera de rango, prefix/suffix inválidos D33, lote vacío `E_INVALID_INPUT`— fallan ANTES de simular con exit `2` sin reporte, igual que la corrida real; colisiones/inválidos per-archivo se reportan en `message`/`summary` con exit `0`). (D_n cerrado 2026-09-13, opción A: el dry-run SIMULA la intención de los flags de colisión — destino existente con `--overwrite` → `would overwrite`; sin `--overwrite` → `would fail: E_OUTPUT_EXISTS`; con `--skip-existing` → `would skip`; todo per-archivo con exit `0` según D_f). Con `--dry-run --json` emite la misma tabla en `JSONL` con `status="dry-run"` y `pct=0`, sin crear nada.
 * Humano: cabecera `[i/N]`, una barra viva por video a `stderr` (`indicatif`; `ProgressDrawTarget::hidden()` con `--json` o sin TTY), línea final por video con `MB + segundos`, resumen final. Sin TTY: líneas de porcentaje sin animación. Orden estricto, flush explícito tras cada línea. Mapeo `pct`: `0 inicio/colisión-check, 1-5 extract, 6-80 denoise por chunks (d/t), 81-95 remux, 96-99 verificar+limpiar, 100 ok/failed; skipped SIEMPRE pct=0` (D_m cerrado 2026-09-13, opción A: un archivo `skipped` nunca se procesó, consistente con `dry-run pct=0`).
-* `--json`: desactiva animación; `stdout` en `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct 0-100` según mapeo —`skipped` → `pct=0` D_m—, `summary` sin `pct`). Sin `--json`: salida humana a `stderr`. (D38 cerrado 2026-09-13, opción A: `--json + -v` combinables —`stdout` JSONL inalterado parseable con `jq`, debug `log` a `stderr` + conserva temps como `-v` solo).
+* `--json`: desactiva animación; `stdout` en `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct 0-100` según mapeo —`skipped` → `pct=0` D_m—, `summary` sin `pct`). Sin `--json`: salida humana a `stderr`. (D38 cerrado 2026-09-13, opción A: `--json + --verbose` combinables —`stdout` JSONL inalterado parseable con `jq`, debug `log` a `stderr` + conserva temps como `--verbose` solo).
 * **Aceptación:** corrida real lote 5 con 1 corrupto → 4 ok + 1 failed, exit `!=0`, JSON parseable; `--dry-run` del mismo lote → exit `0` con `status="dry-run"`; en modo humano el proceso muestra avance por video sin quedarse silencioso >2s.
 
 ### RF-09 Temporales, cancelación y limpieza
 * **ID:** RF-09. **Prioridad:** Media.
-* Temps `<out>.tmp.in.wav` y `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `-v` debug (D31 cerrado 2026-09-13: por defecto guardia `Drop`/limpieza explícita + borrado `.part`; con `-v` se conservan `.wav`/`.part` para inspeccionar).
+* Temps `<out>.tmp.in.wav` y `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `--verbose` debug (D31 cerrado 2026-09-13: por defecto guardia `Drop`/limpieza explícita + borrado `.part`; con `--verbose` se conservan `.wav`/`.part` para inspeccionar).
 * `Ctrl+C`: handler `ctrlc` + flag atómico → `Child::kill` al hijo `ffmpeg`/cierre de inferencia, borra parcial y temps, exit 3. 2º `Ctrl+C` fuerza salida inmediata exit 3 aunque quede limpieza. (D_i cerrado 2026-09-13, opción A: la cancelación TAMBIÉN aplica durante la descarga del modelo — el flag atómico se consulta entre retries y la guardia `Drop` de `models.rs` borra el `.part`; `reqwest blocking` no aborta el request en curso, latencia máx = ventana timeout `30s`; exit `3` consistente). Inferencia `ort` cancelable cooperativamente entre chunks (latencia máx 1 chunk en curso). En Win crear hijo con `CREATE_NEW_PROCESS_GROUP` para terminación limpia; en POSIX grupo por defecto. Comportamiento observable único Win/POSIX. Disco lleno/sin permiso al escribir salida/temps → `E_IO`.
 * **Aceptación:** interrumpir a mitad no deja `.mp4` parcial ni `.wav`.
 
 ### RF-10 Ayuda, versión y verbosidad
 * **ID:** RF-10. **Prioridad:** Media.
-* `--help` documenta todos los flags con ejemplos; `--version` imprime `denoise 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` (fuente única `Cargo.toml [package] version="1.0.0"` leída vía `env!("CARGO_PKG_VERSION")`; D16 cerrado: nombre canónico todo `denoise`); `-v` debug (comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños).
-* Niveles: defecto `info` (fases), `-v` `debug` vía `log + env_logger`. Sin nivel silencioso separado: `--json` ya es apto para scripting.
-* **Aceptación:** `denoise --help` es suficiente para usar sin leer este doc; `-v` permite reproducir manualmente cada `ffmpeg`.
+* `--help` documenta todos los flags con ejemplos; `--version` imprime `denoise 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` (fuente única `Cargo.toml [package] version="1.0.0"` leída vía `env!("CARGO_PKG_VERSION")`; D16 cerrado: nombre canónico todo `denoise`); `--verbose` activa nivel `debug` de `log + env_logger` (comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños).
+* Niveles: defecto `info` (fases), `--verbose` activa `debug` vía `log + env_logger`. Sin nivel silencioso separado: `--json` ya es apto para scripting.
+* **Aceptación:** `denoise --help` es suficiente para usar sin leer este doc; `--verbose` permite reproducir manualmente cada `ffmpeg`.
 
 ## 3. Requerimientos no funcionales
 
@@ -103,13 +104,13 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ### RNF-03 Rendimiento y recursos
 * Memoria constante por chunks `60s/1s overlap` (pico `~300MB` más `ffmpeg`); CPU 1 job secuencial; sin GPU requerida.
-* No re-encode de video → tiempo dominado por DFN3 + remux ligero. Telemetría en `-v` (segundos por fase), sin objetivo contractual.
+* No re-encode de video → tiempo dominado por DFN3 + remux ligero. Telemetría en `--verbose` (segundos por fase), sin objetivo contractual.
 
 ### RNF-04 Fiabilidad numérica
 * Constantes DSP (ver `docs/design.md §6`: `SR48000/FFT960/HOP480/ERB32/DF96/ORDER5/LOOKAHEAD2/ALPHA0.99/LSNR-15/35/20` (D37 cerrado 2026-09-13, opción B)). Test dorado obligatorio y bloqueante antes de release con `SI-SDR` en Rust puro en `tests/common/si_sdr.rs` (zero-mean por señal, `eps=1e-8`, `10*log10(||s_target||²/||e||²)`, declarado en cada test vía `#[path = "common/si_sdr.rs"] mod si_sdr;` — D_h cerrado 2026-09-13) y vectores deterministas en `tests/data/` versionados en git (generador `examples/gen_vectors.rs` con `rand StdRng seed 0/1` + Box-Muller manual, ejecutado solo manualmente vía `cargo run --example gen_vectors`, nunca en `cargo test`/CI — D39 cerrado 2026-09-13, opción A; preserva el congelado D14), seno `440Hz 3s` + ruido blanco `SNR 10dB`, `SR 48k` mono `PCM16` en disco —dato en memoria `f32` vía `i16→f32/32768.0`, mismo camino que el pipeline real (D_l cerrado 2026-09-13, opción A)—: `voz.wav`, `mezcla10dB.wav`, `referencia_dfn3.wav` D14: generada una vez con el propio port tras validar mejora, luego congelada —D37 invalida refs previas: regenerar una única vez con nuevos umbrales y recongelar—; + vectores largos `voz65s.wav`, `mezcla65s10dB.wav`, `referencia65s_dfn3.wav` (mismo generador `seed 1`, `440Hz 65s` para ejercitar 2 chunks + crossfade 1s, mismo formato `PCM16` D_l); asserts `SI-SDR(denoised,voz)-SI-SDR(mezcla,voz) >=5dB` Y `SI-SDR(denoised,referencia) >=60dB` en ambos pares (3s y 65s); valores `20.8dB` pipeline oficial / `~77dB` paridad bit-exacta solo informativos). Desviación bajo umbrales = bloqueante (D9 cerrado + D30 cerrado 2026-09-13: estricto, 55-59dB también bloquea e impone investigar ventana/`WNORM` sin relajar spec).
 
 ### RNF-05 Seguridad
-* Sin red salvo descarga modelo desde origen fijo único (`github.com/Rikorose/DeepFilterNet v0.5.6`, sin HuggingFace en v1). Sin ejecución de nombres de archivo como shell (`Command` con argv, sin shell). `-o` fuera del cwd permitido pero se advierte si sobreescribe entrada sin `prefix/suffix`.
+* Sin red salvo descarga modelo desde origen fijo único (`github.com/Rikorose/DeepFilterNet v0.5.6`, sin HuggingFace en v1). Sin ejecución de nombres de archivo como shell (`Command` con argv, sin shell). `--output-name` fuera del cwd permitido pero se advierte si sobreescribe entrada sin `prefix/suffix`.
 * Modelos verificados por tamaño `7983136B >=98%` + `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` registrado en RF-06 y en `docs/design.md §7` (D1 cerrado definitivo 2026-09-13: SHA obligatorio; mismatch → `E_MODEL_MISSING` bloqueante para `v1.0.0`); nunca se ejecuta código descargado salvo `.onnx` vía `ort`.
 
 ### RNF-06 Usabilidad y scripting
@@ -130,13 +131,13 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 | Flag | RF |
 |---|---|
 | `INPUT..., --recursive` | RF-01, RF-02 |
-| `-o/--output-name, --output-dir, --prefix, --suffix` | RF-03 |
+| `--output-name, --output-dir, --prefix, --suffix` | RF-03 |
 | `--overwrite, --skip-existing` | RF-04 |
 | (pipeline interno) | RF-05 |
 | `--audio-bitrate` | RF-05B |
 | `--model-dir` | RF-06 |
 | `--ffmpeg-path` | RF-07 |
-| `--dry-run, --json, -v` | RF-08, RF-09, RF-10 |
+| `--dry-run, --json, --verbose` | RF-08, RF-09, RF-10 |
 
 ## 5. Casos borde obligatorios
 

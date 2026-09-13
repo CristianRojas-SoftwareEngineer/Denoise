@@ -24,7 +24,7 @@
 3. **Video nunca se re-codifica:** `-c:v copy`. Solo el audio se procesa.
 4. **Fallo explícito y limpio:** exit codes, temps siempre borrados, `String::from_utf8_lossy` en Windows.
 5. **CLI predecible para batch y scripting:** `--dry-run`, `--json`, `--skip-existing`, lote secuencial.
-6. **Implementación legible Rust:** `stable 1.88+ edition 2021`, `PathBuf`, `clippy+rustfmt`, `anyhow` en bin / `thiserror` en lib, `log + env_logger` (`info`/`-v debug`), funciones pequeñas, sin estado global salvo sesiones `ort` cacheadas (`Mutex`).
+6. **Implementación legible Rust:** `stable 1.88+ edition 2021`, `PathBuf`, `clippy+rustfmt`, `anyhow` en bin / `thiserror` en lib, `log + env_logger` (`info`/`--verbose debug`), funciones pequeñas, sin estado global salvo sesiones `ort` cacheadas (`Mutex`).
 7. **Testing por pirámide:** unitarias rápidas con `ffmpeg 6+` real sin red/modelo (`cargo test`, D22), doradas DSP bloqueantes + e2e `remux` con `#[ignore]` (slow) vía `cargo test -- --ignored`.
 8. **Documentación como contrato:** `README.md` (MIT + atribución DFN3) + `--help` + ejemplos idénticos a §4; `CHANGELOG.md` por release (inicial `1.0.0`); `LICENSE` MIT en raíz.
 
@@ -56,7 +56,7 @@
     ffmpeg_io.rs             # localización ffmpeg, has_audio, extract, remux, verify
     errors.rs                # E_* + exit codes
   tests/
-    test_naming.rs           # reglas prefix/suffix/output-dir/-o (sin ffmpeg/red)
+    test_naming.rs           # reglas prefix/suffix/output-dir (--output-name) (sin ffmpeg/red)
     common/si_sdr.rs         # helper SI-SDR Rust puro (cada test lo declara: #[path = "common/si_sdr.rs"] mod si_sdr; D_h)
     test_golden.rs           # tono 10dB ruido blanco → mejora SI-SDR (#[ignore] slow)
     test_remux.rs            # codec/res/fps/duración/bitrate, sin re-encode (#[ignore] slow)
@@ -71,19 +71,19 @@
 ## 4. Contrato CLI (v1)
 
 ```text
-denoise INPUT... [-o/--output-name NAME | --output-dir DIR] [--prefix STR] [--suffix STR]
+denoise INPUT... [--output-name NAME | --output-dir DIR] [--prefix STR] [--suffix STR]
   [--recursive] [--overwrite | --skip-existing]
   [--audio-bitrate KBPS] [--model-dir DIR] [--ffmpeg-path PATH]
-  [--dry-run] [--json] [-v] [--version]
+  [--dry-run] [--json] [--verbose] [--version]
 ```
 
 * `INPUT...`: 1..N rutas. Cada una puede ser archivo (`mp4/mov/mkv/webm/avi`) o directorio. Entry-point: bin `denoise` desde `src/main.rs` sobre lib `src/lib.rs` (`cargo run -- ...` equivalente, `version` desde `Cargo.toml`). Los tests de integración importan la lib, nunca el bin.
 * `--audio-bitrate`: bitrate AAC de salida en kbps (defecto `192`, rango `64-320`).
 * Reglas de salida (precedencia; `--output-name` y `--output-dir` son COMPLEMENTARIOS, D_o cerrado 2026-09-13):
-  1. Si lote expandido==1 y `-o/--output-name NAME`: `DIR/<prefix><NAME><suffix>.mp4`, donde `DIR` es `--output-dir` si se pasa, sino cwd. Auto-`.mp4` si NAME no termina en `.mp4` case-insensitive (D35 cerrado 2026-09-13 revisado: `final` → `final.mp4`). D20: `--output-name` solo con lote==1; lote>1 → `E_INVALID_INPUT`.
-  2. Si solo `--output-dir DIR`: `DIR/<relativo-a-cwd>/<prefix><stem><suffix>.mp4`, recreando subcarpetas si `--recursive` (D27 cerrado 2026-09-13, opción A: `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; fuera de cwd → solo `stem` + aviso `-v`).
+  1. Si lote expandido==1 y `--output-name NAME`: `DIR/<prefix><NAME><suffix>.mp4`, donde `DIR` es `--output-dir` si se pasa, sino cwd. Auto-`.mp4` si NAME no termina en `.mp4` case-insensitive (D35 cerrado 2026-09-13 revisado: `final` → `final.mp4`). D20: `--output-name` solo con lote==1; lote>1 → `E_INVALID_INPUT`.
+  2. Si solo `--output-dir DIR`: `DIR/<relativo-a-cwd>/<prefix><stem><suffix>.mp4`, recreando subcarpetas si `--recursive` (D27 cerrado 2026-09-13, opción A: `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; fuera de cwd → solo `stem` + aviso `--verbose`).
   3. Por defecto: junto al original como `<stem><suffix>.mp4` con `suffix=_denoised`, `prefix=""`.
-  3b. (D_e cerrado 2026-09-13, opción C) Si 2+ entradas del lote resuelven al MISMO path de salida (`a.mp4`+`a.mov`→`a_denoised.mp4`), el 2º y siguientes reciben auto-sufijo incremental `_1`, `_2`... (`a_denoised_1.mp4`) con aviso SIEMPRE a `stderr` (no solo `-v`); aplica a las reglas 2 y 3. `--dry-run` muestra las salidas desempatadas ya en la tabla.
+  3b. (D_e cerrado 2026-09-13, opción C) Si 2+ entradas del lote resuelven al MISMO path de salida (`a.mp4`+`a.mov`→`a_denoised.mp4`), el 2º y siguientes reciben auto-sufijo incremental `_1`, `_2`... (`a_denoised_1.mp4`) con aviso SIEMPRE a `stderr` (no solo `--verbose`); aplica a las reglas 2 y 3. `--dry-run` muestra las salidas desempatadas ya en la tabla.
   4. Colisión sin `--overwrite`: error salvo `--skip-existing` (marca `skipped`, exit 0).
   5. (D7 cerrado) Directorios padre de `--output-name`, `--output-dir` y `--model-dir` se crean siempre; si no creables → `E_IO`.
   6. `prefix/suffix` solo `[A-Za-z0-9._-]`, prohibidos `.` y `..` exactos; no ambos vacíos si salida in-place (D33). `--output-name` que resuelve a la propia entrada sin `prefix/suffix` efectivo → `E_INVALID_INPUT` exit `2` SIEMPRE, incluso con `--overwrite` (D_p cerrado 2026-09-13: endurecido —D33 warning condicionado reemplazado por error invariante—).
@@ -105,7 +105,7 @@ expandir → validar extensión/existencia → resolver salida (puras, sin I/O)
 ```
 
 Responsabilidades estrictas:
-* `cli.rs`: parseo `clap`, expansión determinista byte-wise UTF-8 (D21), dedup por absoluto lexical contra cwd sin resolver symlinks (D28 cerrado 2026-09-13; case-insensitive solo Win), `resolve_output()` pura, bucle lote secuencial, reporte. No DSP. La expansión excluye `--output-dir` si está dentro de `INPUT` + aviso en `-v`. (D4 cerrado) Excluye además `*<suffix>.mp4` vigente en escaneos `--recursive` + aviso en `-v`.
+* `cli.rs`: parseo `clap`, expansión determinista byte-wise UTF-8 (D21), dedup por absoluto lexical contra cwd sin resolver symlinks (D28 cerrado 2026-09-13; case-insensitive solo Win), `resolve_output()` pura, bucle lote secuencial, reporte. No DSP. La expansión excluye `--output-dir` si está dentro de `INPUT` + aviso en `--verbose`. (D4 cerrado) Excluye además `*<suffix>.mp4` vigente en escaneos `--recursive` + aviso en `--verbose`.
 * `pipeline.rs`: orquesta un video, traduce progreso a `0-100` según mapeo de §8 de este documento, garantiza limpieza + borrado parcial en error/`Ctrl+C`. Verificación ligera runtime: `>0B + duración ±0.5s + Audio AAC presente`.
 * `df/` (D40 cerrado 2026-09-13, opción A: submódulos, cada uno <300 líneas): solo `ndarray+rustfft+ort`, firma `denoise_wav(in_wav: &Path, out_wav: &Path, progress_cb)` en `df/mod.rs`; `stft.rs` framing+STFT/iSTFT+WNORM, `erb.rs` constantes+features, `net.rs` sesiones `ort` cacheadas, `overlap.rs` crossfade+recorte. Sin `Command`, sin `println!` en núcleo. I/O WAV con `hound` PCM16 ↔ `f32` (`/32768.0`, clip antes de `i16`).
 * `ffmpeg_io.rs`: `find_ffmpeg()` (vía crate `which`, con `PATHEXT` en Win), `has_audio()`, `extract_mono48k()`, `remux_copy()`, `verify_output_ligero()`. Todo `Command` argv, `String::from_utf8_lossy`. Probe `ffmpeg -hide_banner -i` + regex `Duration:` = duración del CONTENEDOR, fuente de `<dur_video>` (D_k cerrado 2026-09-13, opción A; sin decode extra del stream de video).
@@ -129,7 +129,7 @@ ffmpeg -y -v error -i IN -i TMP.out.wav
 
 Detección de audio: `ffmpeg -hide_banner -i IN` contiene `Audio:`. Sin audio → error `E_NO_AUDIO`, no se genera salida.
 
-Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `-v` debug (D31 cerrado 2026-09-13: con `-v` se conservan `.wav`/`.part` para inspeccionar). Handler `ctrlc` → `Child::kill` (`ffmpeg`) + aborto cooperativo de `ort` entre chunks (latencia máx 1 chunk en curso), borra `.part` + temps, `exit 3` (2º `Ctrl+C` fuerza salida inmediata); la cancelación también aplica durante la descarga del modelo: flag atómico consultado entre retries + guardia `Drop` que borra el `.part` de la descarga (D_i cerrado 2026-09-13); en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX. Fallos de escritura → `E_IO`.
+Temporales por trabajo: `<out>.tmp.in.wav`, `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `--verbose` debug (D31 cerrado 2026-09-13: con `--verbose` se conservan `.wav`/`.part` para inspeccionar). Handler `ctrlc` → `Child::kill` (`ffmpeg`) + aborto cooperativo de `ort` entre chunks (latencia máx 1 chunk en curso), borra `.part` + temps, `exit 3` (2º `Ctrl+C` fuerza salida inmediata); la cancelación también aplica durante la descarga del modelo: flag atómico consultado entre retries + guardia `Drop` que borra el `.part` de la descarga (D_i cerrado 2026-09-13); en Win hijo con `CREATE_NEW_PROCESS_GROUP`, observable único Win/POSIX. Fallos de escritura → `E_IO`.
 
 ## 6. Módulo `df/` — especificación DSP (no cambiar valores)
 
@@ -187,8 +187,8 @@ Batch nunca aborta en el primer fallo (salvo `Ctrl+C`): continúa y resume `ok/f
 Reporte dinámico pero ordenado (sin nuevos flags):
 * Humano (defecto, TTY): cabecera `[i/N] in → out`, una barra viva por video a `stderr` (`indicatif`, `unit=chunk`; `hidden()` con `--json`/sin TTY), más línea final por video `done|failed|skipped + MB + segundos`. Resumen final siempre visible. Flush explícito, sin emojis, ASCII seguro en `pwsh`.
 * Humano sin TTY/CI: sin animación (`hidden()`), líneas ` [i/N] name ... 45% msg` cada cambio de fase.
-* `-v`: `log + env_logger` (`info`/`debug`), añade a `stderr` comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños `in.wav/out.wav`, y conserva temps.
-* `--json`: desactiva animación; `stdout` = `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct` según mapeo `0/1-5/6-80/81-95/96-99/100` —`skipped` SIEMPRE `pct=0`, D_m cerrado 2026-09-13, opción A—, `summary` sin `pct`); progreso humano suprimido. Parseable con `jq`. Ver `docs/specifications.md RF-08`. (D38 cerrado 2026-09-13, opción A: `--json + -v` combinables —debug a `stderr` + conserva `.wav`/`.part`, `stdout` intacto).
+* `--verbose`: `log + env_logger` (`info`/`debug`), añade a `stderr` comando `ffmpeg` exacto, `model-dir`, tiempos por fase, `chunks d/t`, tamaños `in.wav/out.wav`, y conserva temps.
+* `--json`: desactiva animación; `stdout` = `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct` según mapeo `0/1-5/6-80/81-95/96-99/100` —`skipped` SIEMPRE `pct=0`, D_m cerrado 2026-09-13, opción A—, `summary` sin `pct`); progreso humano suprimido. Parseable con `jq`. Ver `docs/specifications.md RF-08`. (D38 cerrado 2026-09-13, opción A: `--json + --verbose` combinables —debug a `stderr` + conserva `.wav`/`.part`, `stdout` intacto).
 * `--dry-run`: tabla `input → output (skip: motivo)` sin escribir/crear nada, mismo orden que el lote real, solo lectura `stat` para colisión; sin `ffmpeg/modelo/has_audio` (D23 + D25 cerrado 2026-09-13) (con `--json` emite `JSONL` con `status="dry-run" pct=0`). (D5 cerrado, refinado por D_f cerrado 2026-09-13, opción A: exit `0` con CLI estructuralmente válida; errores estructurales —D_o flags inválidos/combinados, bitrate fuera de rango, D33 prefix+suffix inválidos, lote vacío— fallan antes de simular con exit `2` sin reporte; per-archivo se reporta con exit `0`). (D_n cerrado 2026-09-13, opción A: el dry-run SIMULA la intención de los flags de colisión — destino existente con `--overwrite` → `would overwrite`, sin `--overwrite` → `would fail: E_OUTPUT_EXISTS`, con `--skip-existing` → `would skip`; per-archivo, exit `0` según D_f).
 * `--version`: imprime `denoise 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>` desde `Cargo.toml` vía `env!("CARGO_PKG_VERSION")` (D16: todo `denoise`) (sin `ffmpeg` imprime `ffmpeg missing`). Ver `docs/specifications.md RF-10`.
 
