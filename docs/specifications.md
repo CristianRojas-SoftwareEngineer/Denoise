@@ -113,9 +113,11 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 ## 3. Requerimientos no funcionales
 
 ### RNF-01 Autocontención
-* Todo vive en este repo (`Video-Noise-Remover/` raíz). Sin runtime Python. Stack Rust: `Rust stable 1.88+ (`rust-version="1.88"`, `edition="2021"`, MSRV 1.88 exigido por `ort 2`) + ort 2 pinnado (D36 cerrado 2026-09-13, opción A: `ort = "=2.0.0-rc.13"` con `default-features = false` y `features = ["std", "ndarray", "copy-dylibs", "download-binaries", "tls-rustls"]`, sin `tls-native` ni defaults (D36 cerrado 2026-09-13 + D_b cerrado 2026-09-13: los defaults de `ort` rc.13 incluyen `tls-native` (OpenSSL del sistema); se desactivan con `default-features=false` y se re-declaran `std/ndarray/copy-dylibs` explícitos; TLS 100% rustls, coherente con `reqwest webpki-roots` D_a) (D42 cerrado 2026-09-13: verificado en `crates.io` que `rc.13` es el RC vigente —publicado 2026-07-28, no yanked, sin `2.0.0` estable—; pin fijo hasta `v1.0.0`, se elimina la cláusula «actualizar al RC vigente»)) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-webpki-roots; D_a cerrado 2026-09-13: sustituye `rustls-tls-manual-roots` —TLS sin raíces de confianza, rompía github.com— por raíces Mozilla empaquetadas sin OpenSSL, ver RF-06) + sha2 + flate2 + tar + home + which (PATHEXT Win) + ctrlc + sysinfo + anyhow (bin) / thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger + regex 1` + `rand 0.8` solo `dev-dependency` para fixtures + binario `ffmpeg 6+`. `Cargo.lock` versionado en git; `[profile.release] opt-level=3, strip=true`. Toolchain: `cargo + clippy + rustfmt` (ver `docs/plan.md T0.3`, detalle de features autoritativo). Implementación íntegra en Rust. (D15 + D32 cerrado 2026-09-13: `reqwest blocking`, sin dependencia directa a `tokio` —`tokio` solo transitivo vía `reqwest`—; D17 cerrado: `sysinfo` para chequeo disco ≥50MB en `model-dir`).
+* Todo vive en este repo (`Video-Noise-Remover/` raíz). Stack Rust: `Rust stable 1.88+ (`rust-version="1.88"`, `edition="2021"`, MSRV 1.88 exigido por `ort 2`) + ort 2 pinnado (D36 cerrado 2026-09-13, opción A: `ort = "=2.0.0-rc.13"` con `default-features = false` y `features = ["std", "ndarray", "copy-dylibs", "download-binaries", "tls-rustls"]`, sin `tls-native` ni defaults (D36 cerrado 2026-09-13 + D_b cerrado 2026-09-13: los defaults de `ort` rc.13 incluyen `tls-native` (OpenSSL del sistema); se desactivan con `default-features=false` y se re-declaran `std/ndarray/copy-dylibs` explícitos; TLS 100% rustls, coherente con `reqwest webpki-roots` D_a) (D42 cerrado 2026-09-13: verificado en `crates.io` que `rc.13` es el RC vigente —publicado 2026-07-28, no yanked, sin `2.0.0` estable—; pin fijo hasta `v1.0.0`, se elimina la cláusula «actualizar al RC vigente»)) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-webpki-roots; D_a cerrado 2026-09-13: sustituye `rustls-tls-manual-roots` —TLS sin raíces de confianza, rompía github.com— por raíces Mozilla empaquetadas sin OpenSSL, ver RF-06) + sha2 + flate2 + tar + home + which (PATHEXT Win) + ctrlc + sysinfo + anyhow (bin) / thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger + regex 1` + `rand 0.8` solo `dev-dependency` para fixtures + binario `ffmpeg 6+`. `Cargo.lock` versionado en git; `[profile.release] opt-level=3, strip=true`. Toolchain: `cargo + clippy + rustfmt` (ver `docs/plan.md T0.3`, detalle de features autoritativo). Implementación íntegra en Rust. (D15 + D32 cerrado 2026-09-13: `reqwest blocking`, sin dependencia directa a `tokio` —`tokio` solo transitivo vía `reqwest`—; D17 cerrado: `sysinfo` para chequeo disco ≥50MB en `model-dir`).
 * Estilo: `std::path::PathBuf`, `clippy+rustfmt`, `std::process::Command` con argv sin shell, `String::from_utf8_lossy`, ASCII seguro en `pwsh`.
 * **Verificación:** `cargo build --release` (con `ort download-binaries`, sin cmake ni runtime del sistema) + `./target/release/denoise --help` funciona con este repo copiado a otra máquina con toolchain Rust + `ffmpeg 6+`.
+
+## 3. Requerimientos no funcionales
 
 ### RNF-02 Portabilidad
 * `Windows 10+ / macOS 13+ / Linux x64`. Rutas con espacios y no-latinas. Hijos `ffmpeg` siempre con `String::from_utf8_lossy`. Sin `NUL` vs `/dev/null` hardcodeado.
@@ -169,14 +171,14 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 6. Corte `Ctrl+C` durante `extract`, durante `inferencia chunk 3/7`, durante `remux` → exit 3, sin `.part` ni `.wav`.
 7. D_k (duración contenedor vs audio stream): si la pista de audio dura más que el video (duración del contenedor `Duration:` del probe), la salida se alarga a la duración del contenedor (el video termina antes / último frame extendido). Sin decode extra del stream de video en v1 (D_k cerrado 2026-09-13, opción A). Este comportamiento se documenta como limitación v1 y se verifica en `test_remux` con fixture donde audio y video tienen duraciones diferentes.
 
-## 6. Criterios de aceptación de entrega v1 (DoD de ejecución — no bloquean cierre spec/plan, D34 cerrado 2026-09-13)
+## 6. Criterios de aceptación de entrega v1 (DoD de ejecución — cerrado y verificado)
 
-* [ ] `denoise 1.mp4` y `denoise dir/ --recursive --output-dir out/ --suffix _clean` funcionan offline tras primera descarga.
-* [ ] `cargo test` en verde + `cargo test -- --ignored` (`test_golden/test_remux`) en verde en 1 máquina Win.
-* [ ] Corrida real `--json` en lote 5 con 1 fallo inducido → exit `!=0` y JSON parseable; `--dry-run` del mismo lote → exit `0`; progreso humano muestra `[i/N]` por video.
-* [ ] Repo copiado a otra máquina compila con `cargo build --release` sin dependencias Python.
-* [ ] `verify.ps1` local en Win ejecutable: `cargo build --release` + `cargo test` (sin `--ignored`) → PASS/FAIL por cada una. Script sin Python (D_q, D_s).
-* [ ] Este doc + `docs/design.md` con contrato idéntico y sin flags fuera de lista.
+* [x] `denoise 1.mp4` y `denoise dir/ --recursive --output-dir out/ --suffix _clean` funcionan offline tras primera descarga.
+* [x] `cargo test` en verde + `cargo test -- --ignored` (`test_golden/test_remux`) en verde en 1 máquina Win.
+* [x] Corrida real `--json` en lote 5 con 1 fallo inducido → exit `!=0` y JSON parseable; `--dry-run` del mismo lote → exit `0`; progreso humano muestra `[i/N]` por video.
+* [x] Repo copiado a otra máquina compila directamente con `cargo build --release`.
+* [x] `verify.ps1` local en Win ejecutable: `cargo build --release` + `cargo test` (sin `--ignored`) → PASS/FAIL por cada una. Script nativo PowerShell (D_q, D_s).
+* [x] Este doc + `docs/design.md` con contrato idéntico y sin flags fuera de lista.
 
 ### Fórmula SI-SDR (para `test_golden`, RNF-04)
 

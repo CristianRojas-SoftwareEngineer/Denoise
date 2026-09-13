@@ -16,4 +16,4 @@ Nunca se generan en `cargo test` ni CI (preserva el congelado D14).
 - `mezcla65s10dB.wav` — `voz65s.wav` + ruido blanco SNR 10dB, semilla 1
 - `referencia65s_dfn3.wav` — referencia larga congelada
 
-> **⚠️ Estos archivos NO están en git.** Se generan manualmente con el ejemplo `gen_vectors.rs`.
+> **Nota:** Estos archivos son deterministas y se mantienen congelados (D14). Si se requiere regenerarlos manualmente, usar: `cargo run --example gen_vectors`.

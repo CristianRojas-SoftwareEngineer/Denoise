@@ -1,11 +1,11 @@
 #!/usr/bin/env pwsh
 # verify.ps1 — build + test rápido → PASS/FAIL (D_s cerrado 2026-09-13)
-# Sin Python. Script local para Windows (PowerShell).
+# Script local para Windows (PowerShell).
 #
 # Uso: .\verify.ps1
 # Ver `docs/specifications.md §6 DoD` y `docs/plan.md T0.5`.
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 function Test-Step($message) {
     Write-Host "=== $message ===" -ForegroundColor Cyan
@@ -22,22 +22,14 @@ function Test-Fail($message) {
 
 # Paso 1: cargo build --release
 Test-Step "cargo build --release"
-try {
-    cargo build --release 2>&1
-    if ($LASTEXITCODE -ne 0) { Test-Fail "cargo build --release" }
-} catch {
-    Test-Fail "cargo build --release: $_"
-}
+& cargo build --release 2>&1 | Write-Host
+if ($LASTEXITCODE -ne 0) { Test-Fail "cargo build --release" }
 Test-Pass "cargo build --release"
 
 # Paso 2: cargo test (sin --ignored)
 Test-Step "cargo test"
-try {
-    cargo test 2>&1
-    if ($LASTEXITCODE -ne 0) { Test-Fail "cargo test" }
-} catch {
-    Test-Fail "cargo test: $_"
-}
+& cargo test 2>&1 | Write-Host
+if ($LASTEXITCODE -ne 0) { Test-Fail "cargo test" }
 Test-Pass "cargo test"
 
 Write-Host ""

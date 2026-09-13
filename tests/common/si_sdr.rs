@@ -10,14 +10,20 @@
 ///
 /// `eps = 1e-8` para evitar división por cero.
 pub fn si_sdr(x: &[f32], x_hat: &[f32]) -> f64 {
-    assert_eq!(x.len(), x_hat.len(), "Las señales deben tener la misma longitud");
+    assert_eq!(
+        x.len(),
+        x_hat.len(),
+        "Las señales deben tener la misma longitud"
+    );
 
     let eps = 1e-8_f64;
 
-    // Convertir a f64 para precisión
-    let x: Vec<f64> = x.iter().map(|&v| v as f64).collect();
-    let x_hat: Vec<f64> = x_hat.iter().map(|&v| v as f64).collect();
-    let n = x.len() as f64;
+    // Zero-mean (docs/specifications.md §6)
+    let mean_x: f64 = x.iter().map(|&v| v as f64).sum::<f64>() / (x.len() as f64);
+    let mean_xhat: f64 = x_hat.iter().map(|&v| v as f64).sum::<f64>() / (x_hat.len() as f64);
+
+    let x: Vec<f64> = x.iter().map(|&v| v as f64 - mean_x).collect();
+    let x_hat: Vec<f64> = x_hat.iter().map(|&v| v as f64 - mean_xhat).collect();
 
     // ||x||²
     let norm_x_sq: f64 = x.iter().map(|&v| v * v).sum();
@@ -28,29 +34,29 @@ pub fn si_sdr(x: &[f32], x_hat: &[f32]) -> f64 {
     // ||x̂||²
     let norm_xhat_sq: f64 = x_hat.iter().map(|&v| v * v).sum();
 
-    // Si x̂ es casi cero, retornar -infinito o 0 según convención
-    if norm_xhat_sq < eps {
+    // Si x̂ es casi cero o x es cero
+    if norm_xhat_sq < eps || norm_x_sq < eps {
         return f64::NEG_INFINITY;
     }
 
-    // ŝ = (x·x̂ / ||x||²) · x — proyección escalada
-    let scale = dot_product / norm_x_sq.max(eps);
+    // s_target = (dot_product / norm_x_sq) * x
+    // ||s_target||² = dot_product² / norm_x_sq
+    let numerator = dot_product * dot_product / norm_x_sq;
 
-    // ||x · ŝ||² = scale² * ||x||²
-    let numerator = scale * scale * norm_x_sq;
+    // e_noise = x_hat - s_target
+    // ||e_noise||² = ||x_hat||² - ||s_target||²
+    let denominator = norm_xhat_sq - numerator;
 
-    // ||x - ŝ||² = ||x||² - 2*scale*(x·x̂) + scale²*||x||²
-    //              = ||x||² - 2*scale*dot_product + scale²*||x||²
-    //              = ||x||² - 2*dot_product²/norm_x_sq + dot_product²/norm_x_sq
-    //              = ||x||² - dot_product²/norm_x_sq
-    let denominator = norm_x_sq - dot_product * dot_product / norm_x_sq.max(eps);
-
-    if denominator.abs() < eps {
-        return f64::INFINITY;
+    if denominator <= eps {
+        return 100.0; // Prácticamente idéntica / paridad perfecta
     }
 
-    // SI-SDR = 10 · log10(numerator / denominator)
-    10.0 * (numerator / denominator.max(eps)).log10()
+    if numerator <= eps {
+        return f64::NEG_INFINITY;
+    }
+
+    // SI-SDR = 10 · log10( ||s_target||² / ||e_noise||² )
+    10.0 * (numerator / denominator).log10()
 }
 
 #[cfg(test)]
@@ -59,19 +65,27 @@ mod tests {
 
     #[test]
     fn test_si_sdr_identical() {
-        // Señal idéntica → SI-SDR = +infinito (o muy alto)
-        let x = vec![1.0_f32; 100];
+        // Señal idéntica con energía AC → SI-SDR = 100.0 dB (paridad perfecta)
+        let x: Vec<f32> = (0..100).map(|i| (i as f32 * 0.1).sin()).collect();
         let x_hat = x.clone();
         let result = si_sdr(&x, &x_hat);
-        assert!(result.is_infinite() && result > 0.0, "Señal idéntica debe dar SI-SDR infinito, got {}", result);
+        assert!(
+            result >= 60.0,
+            "Señal idéntica debe dar SI-SDR >= 60 dB, got {}",
+            result
+        );
     }
 
     #[test]
     fn test_si_sdr_zero() {
         // x_hat todo ceros → -infinito
-        let x = vec![1.0_f32; 100];
+        let x: Vec<f32> = (0..100).map(|i| (i as f32 * 0.1).sin()).collect();
         let x_hat = vec![0.0_f32; 100];
         let result = si_sdr(&x, &x_hat);
-        assert!(result.is_infinite() && result < 0.0, "x_hat cero debe dar -inf, got {}", result);
+        assert!(
+            result.is_infinite() && result < 0.0,
+            "x_hat cero debe dar -inf, got {}",
+            result
+        );
     }
 }

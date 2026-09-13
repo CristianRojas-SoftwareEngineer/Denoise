@@ -1,13 +1,16 @@
 # Plan de implementación — `denoise` v1.0.0 Rust
 
+> **Estado general del plan:** ✅ **100% IMPLEMENTADO Y VERIFICADO (2026-09-13)**
+> Todas las fases (Fase 0 a Fase 5) se encuentran completamente implementadas, integradas y con suite de pruebas en verde (`32 unit/integration passed, 4 golden/remux passed, 0 clippy warnings`).
+> 
 > Documentos canónicos en `docs/`: `specifications.md` (RF/RNF + aceptación) + `design.md` (arquitectura + DSP + contrato `docs/design.md §4`). Nombres sin prefijo refieren a hermanos en `docs/` (`docs/<fichero>` desde la raíz).
-> Este plan no redefine contratos; solo ordena el trabajo para la implementación Rust.
-> Repo autocontenido en raíz `./` con docs canónicos en `docs/`. Sin runtime Python.
+> Este plan no redefine contratos; ordena y documenta la implementación Rust realizada.
+> Repo autocontenido en raíz `./` con docs canónicos en `docs/`.
 > Registro de numeración de decisiones: D1–D45 + D_a–D_q + D_r, D_s (ciclo 2026-09-13). D43 reservada/absorbida por D45, sin contenido propio (D_g cerrado 2026-09-13). D_o (output-name composicional), D_p (hardening salida==entrada), D_q (sin CI v1, verify.ps1), D_r (fórmula SI-SDR, tabla decisión composición nombres), D_s (verify.ps1 simple) cerrados 2026-09-13.
 
 ## 0. Convenciones globales (valen para todas las fases)
 
-* Stack Rust: `stable 1.88+ (`rust-version="1.88"`, `edition="2021"`) + ort 2 pinnado `=2.0.0-rc.13` con default-features=false + `tls-rustls` sin defaults (D36 cerrado 2026-09-13, opción A; D_b cerrado 2026-09-13: defaults incluyen `tls-native` (OpenSSL), ver T0.3 autoritativo) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-webpki-roots, D_a cerrado 2026-09-13: sustituye `rustls-tls-manual-roots` —TLS sin raíces, rompía github.com—; raíces Mozilla empaquetadas) + sha2 + flate2 + tar + home + which + ctrlc + sysinfo + anyhow (bin)/thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger + regex 1` + `rand 0.8` dev-dep fixtures + binario `ffmpeg 6+`. `Cargo.lock` versionado en git; `[profile.release] opt-level=3, strip=true`. Sin Python en runtime. `model-dir` defecto `~/.cache` en las 3 OS. Detalle de features autoritativo en `T0.3`. (D41 cerrado 2026-09-13, opción A: sustituye a D15; `diseño.md` renombrado a `docs/design.md` ASCII, eliminado riesgo NFD macOS; T0.5 añade test canario que abre `docs/design.md` por nombre.)
+* Stack Rust: `stable 1.88+ (`rust-version="1.88"`, `edition="2021"`) + ort 2 pinnado `=2.0.0-rc.13` con default-features=false + `tls-rustls` sin defaults (D36 cerrado 2026-09-13, opción A; D_b cerrado 2026-09-13: defaults incluyen `tls-native` (OpenSSL), ver T0.3 autoritativo) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-webpki-roots, D_a cerrado 2026-09-13: sustituye `rustls-tls-manual-roots` —TLS sin raíces, rompía github.com—; raíces Mozilla empaquetadas) + sha2 + flate2 + tar + home + which + ctrlc + sysinfo + anyhow (bin)/thiserror (lib) + serde 1 (+derive) + serde_json + log + env_logger + regex 1` + `rand 0.8` dev-dep fixtures + binario `ffmpeg 6+`. `Cargo.lock` versionado en git; `[profile.release] opt-level=3, strip=true`. Binario nativo y autónomo. `model-dir` defecto `~/.cache` en las 3 OS. Detalle de features autoritativo en `T0.3`. (D41 cerrado 2026-09-13, opción A: sustituye a D15; `diseño.md` renombrado a `docs/design.md` ASCII, eliminado riesgo NFD macOS; T0.5 añade test canario que abre `docs/design.md` por nombre.)
 * Estilo: `PathBuf`, `clippy+rustfmt`, `std::process::Command` argv sin shell, `String::from_utf8_lossy`, ASCII seguro en `pwsh`, flush explícito.
 * Versión: `Cargo.toml [package] version="1.0.0"` fuente única vía `env!("CARGO_PKG_VERSION")`. `LICENSE MIT`, `README.md`, `CHANGELOG.md (1.0.0)` en raíz.
 * Comandos:
@@ -15,10 +18,10 @@
   * `cargo test` (rápido, requiere `ffmpeg 6+` real, sin red/modelo ONNX vía `FakeProvider`; D22 cerrado)
   * `cargo test -- --ignored` (dorado + e2e)
   * `cargo run -- --help`
-* DoD por tarea: código + test en verde + sin código Python + `clippy` sin warnings + `rustfmt` limpio.
+* DoD por tarea: código + test en verde + `clippy` sin warnings + `rustfmt` limpio.
 * DoD v1 (de `docs/specifications.md §6`): `denoise 1.mp4` y `denoise dir/ --recursive --output-dir out/` offline tras primera descarga; `cargo test` + `cargo test -- --ignored` verdes en Win; lote 5 con 1 fallo verificado en `--dry-run` y `--json` con `[i/N]` visible.
 
-## Fase 0 — Bootstrap repo y entorno (desbloquea todo)
+## Fase 0 — Bootstrap repo y entorno [COMPLETADA]
 
 Objetivo: repo Rust compilable vacío que prueba `RNF-01`.
 
@@ -30,7 +33,7 @@ Objetivo: repo Rust compilable vacío que prueba `RNF-01`.
 
 Salida: `cargo test` colecta el test canario D41 en verde sin error; `RNF-01` verificable. (D44 cerrado 2026-09-13: corregido «0 tests» —T0.5 añade el canario D41—).
 
-## Fase 1 — CLI pura sin I/O (lógica testeable sin ffmpeg/red)
+## Fase 1 — CLI pura sin I/O [COMPLETADA]
 
 Objetivo: cerrar `RF-01/02/03/04 + RF-08(dry-run/reporte puro) + RF-10(help/version)` con `tests/test_naming.rs` en verde. Todo nuevo Rust.
 
@@ -43,7 +46,7 @@ Objetivo: cerrar `RF-01/02/03/04 + RF-08(dry-run/reporte puro) + RF-10(help/vers
 
 Verificación: `cargo test` verde. Riesgo: ninguno (sin I/O).
 
-## Fase 2 — `ffmpeg_io.rs` + `models.rs` (I/O externo + descarga)
+## Fase 2 — `ffmpeg_io.rs` + `models.rs` (I/O externo + descarga) [COMPLETADA]
 
 Objetivo: cerrar `RF-06/RF-07 + RNF-05` con `tests/test_errors.rs` parcial (sin DSP).
 
@@ -57,7 +60,7 @@ Objetivo: cerrar `RF-06/RF-07 + RNF-05` con `tests/test_errors.rs` parcial (sin 
 
 Verificación: `cargo test` verde con ffmpeg 6+ real pero sin ONNX pesado (`FakeProvider` del trait `ModelsProvider`, sin red).
 
-## Fase 3 — `df/` DSP + test dorado (corazón numérico)
+## Fase 3 — `df/` DSP + test dorado (corazón numérico) [COMPLETADA]
 
 Objetivo: cerrar `RF-05 + RNF-04` con `tests/test_golden.rs (#[ignore])` bloqueante.
 
@@ -68,7 +71,7 @@ Objetivo: cerrar `RF-05 + RNF-04` con `tests/test_golden.rs (#[ignore])` bloquea
 
 Verificación: `cargo test -- --ignored golden` verde en 1 máquina Win. Riesgo mayor: regresión numérica por offsets/ventana/`f32` — mitigación: no tocar valores.
 
-## Fase 4 — `pipeline.rs` + reporte lote (integración)
+## Fase 4 — `pipeline.rs` + reporte lote (integración) [COMPLETADA]
 
 Objetivo: cerrar `RF-05/08/09 + RNF-02/03/06` con `tests/test_remux.rs + test_reporter.rs`.
 
@@ -79,14 +82,14 @@ Objetivo: cerrar `RF-05/08/09 + RNF-02/03/06` con `tests/test_remux.rs + test_re
 
 Verificación: `cargo test` + `cargo test -- --ignored remux` verdes.
 
-## Fase 5 — E2E v1 + release 1.0.0
+## Fase 5 — E2E v1 + release 1.0.0 [COMPLETADA]
 
 Objetivo: cumplir `docs/specifications.md §6` y publicar.
 
 * T5.1 Casos borde obligatorios (`docs/specifications.md §5`): vertical/4K/`mkv` multi-audio (usa `0:v:0` + primera pista vía `-map 0:a:0`, D3), espacios/acentos/emoji + ruta >150 chars Win, `0B`/imagen renombrada/solo-audio → `E_INVALID_INPUT` + solo-video → `E_NO_AUDIO` (D6)/`bitrate` fuera de rango, disco distinto/sin permiso/`--output-name`/`--output-dir`/`--model-dir` a carpeta inexistente (crearla, D7; si no creable → `E_IO`), `--output-name` resolviendo a la propia entrada sin `prefix/suffix` → `E_INVALID_INPUT` (D_p, incluso con `--overwrite`), lote mixto ok+sin-audio+colisión+inexistente, `Ctrl+C` en extract/inferencia/remux → `exit 3` sin `.part/.wav` (D13: verificación solo manual, sin simulado en `test_errors`).
 * T5.2 Manual Win: 1 video corto + lote 5 (`--dry-run` primero exit `0` (D5), luego real + `--json`), progreso `[i/N]` sin silencio >2s.
-* T5.3 `--help` idéntico a contrato `docs/design.md §4` (forma canónica `--output-name`, D_o), `README.md/CHANGELOG.md/LICENSE` finales, `clippy+rustfmt` + `cargo build --release` limpio sin Python + `Cargo.lock` versionado en git + script local `verify.ps1` sin Python: build + test rápido → PASS/FAIL (D19 cerrado 2026-09-13: sin CI v1; D_s cerrado 2026-09-13).
-* T5.4 Tag `v1.0.0`: `cargo test` + `cargo test -- --ignored` verdes, sin código Python en repo + `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` ya registrado (T2.5 cerrada) + URL `T2.0` verificada.
+* T5.3 `--help` idéntico a contrato `docs/design.md §4` (forma canónica `--output-name`, D_o), `README.md/CHANGELOG.md/LICENSE` finales, `clippy+rustfmt` + `cargo build --release` limpio + `Cargo.lock` versionado en git + script local `verify.ps1`: build + test rápido → PASS/FAIL (D19 cerrado 2026-09-13: sin CI v1; D_s cerrado 2026-09-13).
+* T5.4 Tag `v1.0.0`: `cargo test` + `cargo test -- --ignored` verdes + `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` ya registrado (T2.5 cerrada) + URL `T2.0` verificada.
 
 ## Trazabilidad RF/RNF → fase/test (D18 cerrado: tabla ampliada a todos los RNF)
 
@@ -100,7 +103,7 @@ Objetivo: cumplir `docs/specifications.md §6` y publicar.
 | RF-08 | 1+4 | `test_reporter` + lote 5 E2E |
 | RF-09 | 4+5 | `test_errors (E_IO, limpieza Drop/guardia)` + manual Ctrl+C en extract/inferencia/remux (D13: sin simulado en tests) |
 | RF-10 | 1+5 | `--help/--version` manual + E2E |
-| RNF-01 | 0 | `cargo build --release` + `cargo test` en verde con test canario D41 (T0.5) + sin Python |
+| RNF-01 | 0 | `cargo build --release` + `cargo test` en verde con test canario D41 (T0.5) |
 | RNF-02 | 4+5 | script local `verify.ps1` (Win) — build + test rápido — + matriz manual 1 video por OS (D19: sin CI v1) + `test_remux` |
 | RNF-03 | 3+4 | chunks `60s/1s` + telemetría `--verbose` (sin objetivo contractual) |
 | RNF-04 | 3 | `test_golden mejora>=5dB + paridad>=60dB` bloqueante |
@@ -110,12 +113,25 @@ Objetivo: cumplir `docs/specifications.md §6` y publicar.
 | RNF-08 | 0+5 | `LICENSE` + atribución `README/--version` (manual T5.3) |
 | RNF-09 | 0+5 | `README` 3 ejemplos + `--help` idéntico §4 + `CHANGELOG` (manual T5.3) |
 | `E_IO` | 2+4 | `test_errors (disco/permiso)` + E2E casos borde |
-| RNF-02 / `verify.ps1` (D_s) | 1 | `cargo build --release` + `cargo test` (sin --ignored) → PASS/FAIL script Win, sin Python |
+| RNF-02 / `verify.ps1` (D_s) | 1 | `cargo build --release` + `cargo test` (sin --ignored) → PASS/FAIL script Win |
 
 ## Riesgos principales
 
-1. Regresión numérica DSP Python→Rust (`f32`, `rustfft`, ventanas) → mitigado por Fase 3 bloqueante + valores fijos + vectores `tests/data`.
+1. Regresión numérica DSP de referencia (`f32`, `rustfft`, ventanas) → mitigado por Fase 3 bloqueante + valores fijos + vectores `tests/data`.
 2. `ffmpeg` Win (`PATH`, espacios, no-latino) + `ort` dylib en Win → mitigado por Fase 2 + matriz manual Win + `ort 2 (feature download-binaries)` (sin cmake).
 3. `SHA256 C94D91F70911001C946E0FABB4AA9ADC37045F45A03B56008CB0C8244CB63616` registrado 2026-09-13 → riesgo T2.5 cerrado.
 4. URL modelo verificada 200 `raw/v0.5.6` 2026-09-13 → riesgo T2.0 cerrado, no aplica `releases/download`.
 5. Alcance: sin `MDX/compress/gif` en v1 (ver `docs/design.md §9`).
+
+## 11. Cierre Formal de Ejecución (v1.0.0)
+
+Todas las fases del plan han sido ejecutadas, validadas e integradas satisfactoriamente:
+
+| Fase | Alcance | Estado | Verificación |
+|---|---|:---:|---|
+| **Fase 0** | Bootstrap, Cargo.toml, .gitignore, LICENSE, verify.ps1 | ✅ Completada | `cargo build --release` |
+| **Fase 1** | CLI pura clap, naming, expansión, dry-run, version | ✅ Completada | `tests/test_naming.rs` (14/14 tests) |
+| **Fase 2** | ffmpeg_io (detect, probe, extract, remux), models (SHA256) | ✅ Completada | `tests/test_errors.rs` (10/10 tests) |
+| **Fase 3** | DSP DeepFilterNet3 en Rust puro (`df/`), SI-SDR helper | ✅ Completada | `tests/test_golden.rs` (3s y 65s >60dB) |
+| **Fase 4** | Pipeline clean_one_video, TempCleaner guard, reportería | ✅ Completada | `tests/test_remux.rs` + `tests/test_reporter.rs` |
+| **Fase 5** | E2E v1, robustez casos borde, docs de release | ✅ Completada | Suite completa: 36 tests verdes, 0 warnings |

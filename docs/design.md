@@ -1,7 +1,7 @@
 # Diseño — CLI autocontenida `denoise` v1 Rust
 
 > Alcance: única funcionalidad — eliminar ruido de la pista de audio de uno o varios videos.
-> Repo autocontenido: este repo (`Video-Noise-Remover/` raíz). Sin runtime Python.
+> Repo autocontenido: este repo (`Video-Noise-Remover/` raíz).
 > Documentos canónicos en `docs/`: este diseño + `specifications.md`. En caso de divergencia, el contrato CLI de §4 manda.
 > Convención de rutas: `docs/<fichero>` es relativo a la raíz del repo.
 > Registro de numeración de decisiones: D1–D45 + D_a–D_q + D_r, D_s (ciclo 2026-09-13). D43 reservada/absorbida por D45 (seeds 0/1, pares 3s/65s), sin contenido propio (D_g cerrado 2026-09-13). D_o (output-name composicional), D_p (hardening salida==entrada), D_q (sin CI v1, verify.ps1), D_r (fórmula SI-SDR, tabla decisión composición nombres), D_s (verify.ps1 simple) cerrados 2026-09-13.
@@ -19,7 +19,7 @@
 
 ## 2. Principios de diseño
 
-1. **Autocontenida Rust:** `std + ort 2 pinnado `=2.0.0-rc.13` con `default-features=false` + `features = ["std","ndarray","copy-dylibs","download-binaries","tls-rustls"]` (D36 cerrado 2026-09-13, opción A; D42 cerrado 2026-09-13: pin fijo, RC vigente verificado, sin «actualizar»; D_b cerrado 2026-09-13: defaults de `ort` rc.13 incluyen `tls-native` (OpenSSL del sistema), desactivados con default-features=false + re-declaración explícita std/ndarray/copy-dylibs; TLS 100% rustls) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-webpki-roots, D_a) + serde 1 (+derive)/serde_json + log + env_logger + which + regex 1 + sysinfo + ffmpeg` binario (+ `sha2/flate2/tar/home/ctrlc/anyhow(thiserror en lib)`, `rand 0.8` solo dev; `rust-version="1.88"`, `edition="2021"`, `Cargo.lock` versionado en git, `[profile.release] opt-level=3, strip=true`; lista completa en `docs/specifications.md RNF-01`, detalle de features autoritativo en `docs/plan.md T0.3`). Sin `Python/torch/librosa/Flask/pillow/opencv`. (D17: `sysinfo` para disco).
+1. **Autocontenida Rust:** `std + ort 2 pinnado `=2.0.0-rc.13` con `default-features=false` + `features = ["std","ndarray","copy-dylibs","download-binaries","tls-rustls"]` (D36 cerrado 2026-09-13, opción A; D42 cerrado 2026-09-13: pin fijo, RC vigente verificado, sin «actualizar»; D_b cerrado 2026-09-13: defaults de `ort` rc.13 incluyen `tls-native` (OpenSSL del sistema), desactivados con default-features=false + re-declaración explícita std/ndarray/copy-dylibs; TLS 100% rustls) + ndarray + rustfft + hound + clap 4 + indicatif + reqwest 0.12 (blocking + rustls-tls-webpki-roots, D_a) + serde 1 (+derive)/serde_json + log + env_logger + which + regex 1 + sysinfo + ffmpeg` binario (+ `sha2/flate2/tar/home/ctrlc/anyhow(thiserror en lib)`, `rand 0.8` solo dev; `rust-version="1.88"`, `edition="2021"`, `Cargo.lock` versionado en git, `[profile.release] opt-level=3, strip=true`; lista completa en `docs/specifications.md RNF-01`, detalle de features autoritativo en `docs/plan.md T0.3`). Sin dependencias externas pesadas ni servidores. (D17: `sysinfo` para disco).
 2. **No reinventar DSP:** constantes y orden de operaciones de DeepFilterNet3 se copian exactos según §6. El riesgo es regresión numérica.
 3. **Video nunca se re-codifica:** `-c:v copy`. Solo el audio se procesa.
 4. **Fallo explícito y limpio:** exit codes, temps siempre borrados, `String::from_utf8_lossy` en Windows.
