@@ -87,7 +87,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * **ID:** RF-07. **Prioridad:** Alta.
 * Resolver ffmpeg vía `--ffmpeg-path` o `PATH`; si ausente → `E_FFMPEG_NOT_FOUND`. Requiere `ffmpeg 6+` (verificado con `ffmpeg -version` con regex `ffmpeg version (\d+)\.` major>=6 y fallback a prefijo `N-` para builds git BtbN/gyan aceptados como válidos; si tampoco matchea → `E_FFMPEG_NOT_FOUND` con línea de versión cruda en el mensaje, D_c cerrado 2026-09-13), sin `ffprobe`.
 * Receta instalación documentada en `README.md`: Win `winget install Gyan.FFmpeg` / `choco install ffmpeg`, macOS `brew install ffmpeg`, Linux `apt install ffmpeg` (verificar `ffmpeg -version` muestra `6+`).
-* `has_audio` y duración vía `ffmpeg -hide_banner -i` (`Duration:` = duración del contenedor, fuente de `<dur_video>` según D_k); sin audio → `E_NO_AUDIO`, sin salida. (D6 cerrado) Solo-video sin `Audio:` → `E_NO_AUDIO`; solo-audio/imagen renombrada a `.mp4`/corrupto que falla en probe → `E_INVALID_INPUT`; `E_FFMPEG_FAILED` solo si `ffmpeg` falla en `extract/remux`.
+* `has_audio` y duración vía `ffmpeg -hide_banner -i` (`Duration:` = duración del contenedor, fuente de `<dur_video>` según D_k; en contenedores `mov/mp4` se utiliza `-ignore_editlist 1` para alinear la línea de tiempo física 1:1 con el video copiado); sin audio → `E_NO_AUDIO`, sin salida. (D6 cerrado) Solo-video sin `Audio:` → `E_NO_AUDIO`; solo-audio/imagen renombrada a `.mp4`/corrupto que falla en probe → `E_INVALID_INPUT`; `E_FFMPEG_FAILED` solo si `ffmpeg` falla en `extract/remux`.
 * **Aceptación:** video sin audio, ffmpeg ausente y entrada corrupta reportan códigos distintos y no dejan parciales.
 
 ### RF-08 Lote robusto, dry-run, resumen JSON/humano

@@ -167,3 +167,45 @@ fn test_remux_duracion_contenedor() {
     let _ = fs::remove_file(&clean_wav_path);
     let _ = fs::remove_file(&out_path);
 }
+
+#[test]
+#[ignore]
+fn test_remux_mov_mp4_editlist_sync() {
+    let ffmpeg = find_ffmpeg(None).expect("ffmpeg disponible");
+    let temp_dir = std::env::temp_dir();
+    let fixture_path = temp_dir.join("test_remux_elst_in.mp4");
+    let clean_wav_path = temp_dir.join("test_remux_elst_clean.wav");
+    let out_path = temp_dir.join("test_remux_elst_out.mp4");
+
+    generate_fixture_video(&ffmpeg, &fixture_path, 3, 3);
+    generate_dummy_wav(&clean_wav_path, 3);
+
+    let probe_in = probe(&ffmpeg, &fixture_path).expect("Probe de MP4");
+    assert!(probe_in.has_video);
+    assert!(probe_in.has_audio);
+
+    denoise::ffmpeg_io::extract_mono48k(&ffmpeg, &fixture_path, &clean_wav_path)
+        .expect("Extracción con ignore_editlist");
+
+    remux_copy(
+        &ffmpeg,
+        &fixture_path,
+        &clean_wav_path,
+        &out_path,
+        192,
+        probe_in.duration,
+    )
+    .expect("Remux con ignore_editlist");
+
+    let verified =
+        verify_output_ligero(&ffmpeg, &out_path, probe_in.duration).expect("Verificación ligera");
+    assert!(
+        verified,
+        "La salida remuxada debe pasar la verificación ligera"
+    );
+
+    let _ = fs::remove_file(&fixture_path);
+    let _ = fs::remove_file(&clean_wav_path);
+    let _ = fs::remove_file(&out_path);
+}
+

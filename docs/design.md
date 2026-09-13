@@ -116,15 +116,17 @@ Responsabilidades estrictas:
 Comandos ffmpeg exactos a reimplementar:
 
 ```text
-# 1. Extracción (mono 48k exigido por DFN3, D3 cerrado: primera pista determinista)
-ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav
+# 1. Extracción (mono 48k exigido por DFN3, D3 cerrado: primera pista determinista;
+# en contenedores mov/mp4 se añade -ignore_editlist 1 antes de -i para alinear la línea de tiempo física)
+ffmpeg -y -v error [-ignore_editlist 1] -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav
 
 # 2. Remux (video intacto, audio limpio a AAC con bitrate parametrizable)
 # D_d cerrado 2026-09-13, opción A + D_k cerrado 2026-09-13, opción A: -t <dur_video> sustituye a
 # -shortest; <dur_video> = duración del CONTENEDOR del probe (Duration:), no del stream de video —
 # dato que el probe sin ffprobe no expone—. Si el audio limpio es más corto, la cola queda muda;
-# si el audio del input es más largo que el video, la salida se alarga a la del contenedor (limitación v1, §9)
-ffmpeg -y -v error -i IN -i TMP.out.wav
+# si el audio del input es más largo que el video, la salida se alarga a la del contenedor (limitación v1, §9);
+# en contenedores mov/mp4 se añade -ignore_editlist 1 para sincronía perfecta 1:1 con el video copiado.
+ffmpeg -y -v error [-ignore_editlist 1] -i IN -i TMP.out.wav
   -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <audio-bitrate>k -t <dur_video> OUT.mp4
 ```
 

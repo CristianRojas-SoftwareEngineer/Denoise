@@ -75,6 +75,18 @@ pub fn verify_ffmpeg(ffmpeg: &Path) -> Result<String, E> {
     )))
 }
 
+fn is_mov_mp4(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(
+        ext.as_str(),
+        "mp4" | "mov" | "m4v" | "m4a" | "3gp" | "3g2" | "mj2"
+    )
+}
+
 /// Analiza el contenedor de entrada mediante `ffmpeg -hide_banner -i` (D6, D_k).
 pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
     if !input.exists() {
@@ -92,10 +104,14 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
         )));
     }
 
-    let output = Command::new(ffmpeg)
-        .arg("-hide_banner")
-        .arg("-i")
-        .arg(input)
+    let mut cmd = Command::new(ffmpeg);
+    cmd.arg("-hide_banner");
+    if is_mov_mp4(input) {
+        cmd.arg("-ignore_editlist").arg("1");
+    }
+    cmd.arg("-i").arg(input);
+
+    let output = cmd
         .output()
         .map_err(|e| E::EFfmpegFailed(format!("Error ejecutando probe: {}", e)))?;
 
@@ -151,11 +167,12 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
 /// Extrae la primera pista de audio a WAV mono 48kHz PCM16 (D3):
 /// `ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav`
 pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<(), E> {
-    let status = Command::new(ffmpeg)
-        .arg("-y")
-        .arg("-v")
-        .arg("error")
-        .arg("-i")
+    let mut cmd = Command::new(ffmpeg);
+    cmd.arg("-y").arg("-v").arg("error");
+    if is_mov_mp4(input) {
+        cmd.arg("-ignore_editlist").arg("1");
+    }
+    cmd.arg("-i")
         .arg(input)
         .arg("-map")
         .arg("0:a:0")
@@ -164,7 +181,9 @@ pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<()
         .arg("1")
         .arg("-ar")
         .arg("48000")
-        .arg(tmp_wav)
+        .arg(tmp_wav);
+
+    let status = cmd
         .status()
         .map_err(|e| E::EFfmpegFailed(format!("Fallo al ejecutar extracción ffmpeg: {}", e)))?;
 
@@ -191,11 +210,12 @@ pub fn remux_copy(
     let dur_str = format!("{:.3}", dur_video);
     let bitrate_str = format!("{}k", bitrate_kbps);
 
-    let status = Command::new(ffmpeg)
-        .arg("-y")
-        .arg("-v")
-        .arg("error")
-        .arg("-i")
+    let mut cmd = Command::new(ffmpeg);
+    cmd.arg("-y").arg("-v").arg("error");
+    if is_mov_mp4(input_video) {
+        cmd.arg("-ignore_editlist").arg("1");
+    }
+    cmd.arg("-i")
         .arg(input_video)
         .arg("-i")
         .arg(clean_wav)
@@ -211,7 +231,9 @@ pub fn remux_copy(
         .arg(&bitrate_str)
         .arg("-t")
         .arg(&dur_str)
-        .arg(out_part_mp4)
+        .arg(out_part_mp4);
+
+    let status = cmd
         .status()
         .map_err(|e| E::EFfmpegFailed(format!("Fallo al ejecutar remux ffmpeg: {}", e)))?;
 
