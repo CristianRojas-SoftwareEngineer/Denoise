@@ -259,7 +259,7 @@ mod tests {
     /// es fijo, esto fija el retardo efectivo del pipeline para cualquier
     /// duracion de entrada.
     #[test]
-    fn test_pipeline_delay_is_zero() {
+    fn test_pipeline_delay_is_1920() {
         let stft = StftHelper::new();
         for secs in [1usize, 3, 10, 20] {
             let n = secs * SR;

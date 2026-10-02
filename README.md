@@ -25,7 +25,7 @@ cargo build --release
 
 # 3. Ejecutar denoise sobre un video
 ./target/release/denoise "screencast_demo.mp4"
-# Genera: screencast_demo_denoise.mp4 con audio limpio y normalizado
+# Genera: screencast_demo_denoised.mp4 con audio limpio (sin normalización)
 ```
 
 ---
@@ -95,10 +95,10 @@ cargo install --path.
 ## 📖 Guía de Uso y Ejemplos
 
 ### 1. Procesamiento de un Video Individual
-Aplica reducción de ruido a un video individual. Por defecto, genera `<nombre>_denoise.<ext>` en la misma carpeta:
+Aplica reducción de ruido a un video individual. Por defecto, genera `<nombre>_denoised.mp4` en la misma carpeta:
 ```bash
 denoise "tutorial_screencast_01.mp4"
-# Salida: tutorial_screencast_01_denoise.mp4
+# Salida: tutorial_screencast_01_denoised.mp4
 ```
 
 ### 2. Directorio y Nombre de Salida Personalizado
@@ -107,7 +107,7 @@ denoise "tutorial_screencast_01.mp4"
 denoise "raw_interview_take_03.mov" \
   --output-dir "./processed_videos" \
   --output-name "interview_take_03_clean"
-# Salida:./processed_videos/interview_take_03_clean.mov
+# Salida:./processed_videos/interview_take_03_clean.mp4
 ```
 
 ### 3. Procesamiento por Lote con Prefijos y Bitrate de Audio
@@ -138,30 +138,11 @@ Permite capturar el estado y métricas de procesamiento directamente desde scrip
 denoise "./ingest/" --output-dir "./distribution/" --json
 ```
 
-**Ejemplo de salida estructurada:**
+**Ejemplo de salida estructurada (`--json` = JSONL, una línea por archivo + resumen final):**
 ```json
-{
-  "total": 2,
-  "successful": 2,
-  "failed": 0,
-  "skipped": 0,
-  "results": [
-    {
-      "input": "ingest/module_1.mp4",
-      "output": "distribution/module_1_denoise.mp4",
-      "status": "success",
-      "duration_sec": 124.5,
-      "processing_time_sec": 14.2
-    },
-    {
-      "input": "ingest/module_2.mp4",
-      "output": "distribution/module_2_denoise.mp4",
-      "status": "success",
-      "duration_sec": 89.1,
-      "processing_time_sec": 9.8
-    }
-  ]
-}
+{"input":"ingest/module_1.mp4","output":"distribution/module_1_denoised.mp4","status":"ok","message":"24.10 MB, 38.0s","pct":100}
+{"input":"ingest/module_2.mp4","output":"distribution/module_2_denoised.mp4","status":"ok","message":"18.55 MB, 31.2s","pct":100}
+{"summary":{"ok":2,"failed":0,"skipped":0}}
 ```
 
 ### 6. Rutas Personalizadas para Entornos Especiales
@@ -183,17 +164,19 @@ Uso: denoise [OPCIONES] <INPUT>...
 | Argumento / Opción | Tipo | Valor por Defecto | Descripción |
 |:--- |:--- |:--- |:--- |
 | `<INPUT>...` | Posicional | *(Obligatorio)* | Uno o más archivos de video o carpetas a procesar. |
-| `-o`, `--output-dir <DIR>` | Opción | Directorio de origen | Directorio destino para los videos generados. |
-| `--output-name <NAME>` | Opción | `None` | Nombre base del archivo de salida (válido únicamente para 1 video). |
+| `--output-dir <DIR>` | Opción | Directorio de origen | Directorio destino para los videos generados. |
+| `-o`, `--output-name <NAME>` | Opción | `None` | Nombre base del archivo de salida (válido únicamente para 1 video). |
 | `--prefix <TEXT>` | Opción | `""` | Prefijo que se antepondrá al nombre del archivo generado. |
 | `--suffix <TEXT>` | Opción | `"_denoised"` | Sufijo que se agregará antes de la extensión del archivo generado. |
-| `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio AAC de salida en kbps (ej: 128, 192, 256). |
-| `-r`, `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
+| `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio AAC de salida en kbps (rango 64-320) (ej: 128, 192, 256). |
+| `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
+| `--overwrite` | Flag | `false` | Sobrescribe el archivo destino si ya existe (excluyente con `--skip-existing`). |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |
+| `--dry-run` | Flag | `false` | Simula el lote sin escribir nada ni invocar ffmpeg/modelo. |
+| `--verbose` | Flag | `false` | Muestra depuración detallada a `stderr` y conserva temporales. |
 | `--json` | Flag | `false` | Emite el reporte consolidado final en formato JSON estructurado. |
 | `--ffmpeg-path <PATH>` | Opción | `None` (detectado en PATH) | Ruta explícita al ejecutable de `ffmpeg`. |
 | `--model-dir <DIR>` | Opción | `~/.cache/denoise/models` | Directorio local donde se almacenan los modelos ONNX. |
-| `-q`, `--quiet` | Flag | `false` | Suprime barras de progreso y logs no esenciales. |
 | `-h`, `--help` | Flag | — | Muestra la ayuda del CLI. |
 | `-V`, `--version` | Flag | — | Muestra la versión actual de la herramienta. |
 
@@ -202,6 +185,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 - **`0`**: Procesamiento completado con éxito para todos los archivos.
 - **`1`**: Error general o procesamiento parcial (al menos un archivo falló en el lote).
 - **`2`**: Error en los argumentos del CLI o validaciones de entrada.
+- **`3`**: Cancelación por `Ctrl+C` (temporales y `.part` borrados).
 
 ---
 
@@ -218,7 +202,7 @@ flowchart LR
  G --> H["Video Procesado<br/>(Audio Limpio)"]
 ```
 
-1. **Demux y Extracción de Audio (`ffmpeg_io.rs`)**: FFmpeg extrae la primera pista de audio decodificándola a PCM flotante de 32 bits a 48 kHz mono (`-vn -acodec pcm_f32le -ar 48000 -ac 1`).
+1. **Demux y Extracción de Audio (`ffmpeg_io.rs`)**: FFmpeg extrae la primera pista de audio a WAV mono 48 kHz PCM16 (`-map 0:a:0 -vn -ac 1 -ar 48000`), que `df/mod.rs` lee como `i16` vía `hound` (`/32768.0`).
 2. **Transformada Tiempo-Frecuencia (`stft.rs`)**: Divide la señal en tramas de 960 muestras (20 ms a 48 kHz) con 50% de solapamiento y ventana Vorbis (cumpliendo la condición de reconstrucción perfecta de Princen-Bradley).
 3. **Inferencia Neuronal DPDFNet (`df/net.rs`)**: Grafo único stateful (`spec` + `state_in` → `spec_e` + `state_out`) ejecutado frame a frame por ONNX Runtime CPU, encadenando el estado recurrente sin trocear ni reiniciar. Sin bandas ERB externas: la normalización ocurre dentro del grafo.
 4. **Síntesis iSTFT (`df/stft.rs`)**:
@@ -240,9 +224,11 @@ cargo test
 cargo test -- --ignored
 ```
 
-En entornos Windows PowerShell, puedes usar el script de verificación automatizado:
-```powershell
-.\verify.ps1
+### Video manual de prueba
+Fixture real `assets/e2e_vertical_1080x1920_16s.mp4` (vertical 1080x1920, 16s, con audio) para probar casos de uso sin generar nada:
+```bash
+cargo build --release
+./target/release/denoise assets/e2e_vertical_1080x1920_16s.mp4 --dry-run
 ```
 
 ---
@@ -251,7 +237,6 @@ En entornos Windows PowerShell, puedes usar el script de verificación automatiz
 
 ```text
 ├── Cargo.toml # Manifiesto del proyecto y dependencias de crates
-├── verify.ps1 # Script PowerShell de verificación continua
 ├── src/
 │ ├── main.rs # Punto de entrada de la aplicación
 │ ├── lib.rs # Exportación de módulos para biblioteca y tests
@@ -267,8 +252,11 @@ En entornos Windows PowerShell, puedes usar el script de verificación automatiz
 ├── docs/ # Documentación técnica de diseño y especificación
 │ ├── design.md # Arquitectura detallada, DSP y contratos de interfaz
 │ ├── specifications.md # Especificación de requerimientos RF, RNF y DoD
-│ └── plan.md # Plan de implementación por fases
+├── assets/ # Fixture manual E2E (`e2e_vertical_1080x1920_16s.mp4`)
+├── examples/gen_vectors.rs # Generador de vectores con voz real del EvalSet
 ├── tests/ # Tests de integración y validación con golden vectors
+│ ├── common/si_sdr.rs # Helper SI-SDR Rust puro
+│ ├── data/*.wav + README.md # Vectores versionados + descripción
 └── CHANGELOG.md # Registro de versiones y notas de lanzamiento
 ```
 

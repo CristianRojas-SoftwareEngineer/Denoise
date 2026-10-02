@@ -30,4 +30,4 @@ actual. Paridad verificada contra sherpa-onnx (1 LSB PCM16).
 - `voz65s_noisy.wav` - `voz65s_clean.wav` + ruido a SNR 10 dB
 - `referencia65s_dpdfnet.wav` - salida de DPDFNet sobre `voz65s_noisy.wav`, congelada
 
-> **Nota:** Estos archivos son deterministas y se mantienen congelados. Si se requiere regenerarlos manualmente, usar `cargo run --example gen_vectors -- <dir_eval>`.
+> **Nota:** Estos archivos son deterministas y se mantienen congelados. Si se requiere regenerarlos manualmente, usar `cargo run --release --example gen_vectors -- <dir_eval>`.

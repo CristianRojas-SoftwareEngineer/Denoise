@@ -96,13 +96,6 @@ pub struct FakeProvider {
 }
 
 impl FakeProvider {
-    pub fn success() -> Self {
-        Self {
-            should_fail: false,
-            fail_with_io: false,
-        }
-    }
-
     pub fn failing_missing() -> Self {
         Self {
             should_fail: true,

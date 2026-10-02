@@ -79,7 +79,7 @@ fn test_summary_correct() {
 
 #[test]
 fn test_no_animation_with_json() {
-    // Verifica que en modo JSON el status de skipped produce pct=0 según D_m
+    // Verifica que en modo JSON el status de skipped produce pct=0
     let skipped_line = JsonLogLine {
         input: "test.mp4".to_string(),
         output: "test_denoised.mp4".to_string(),

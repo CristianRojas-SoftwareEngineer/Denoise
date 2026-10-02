@@ -1,4 +1,4 @@
-//! Test de errores y taxonomía de salidas (Fase 2).
+//! Test de errores y taxonomía de salidas.
 //!
 //! Ver `specifications.md §2-4` y `design.md §8, §10 punto 4`.
 //! Requiere `ffmpeg 6+` real (para probe), `FakeProvider` sin red/modelo.

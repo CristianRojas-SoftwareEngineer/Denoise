@@ -21,7 +21,7 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi"];
     name = "denoise",
     version = env!("CARGO_PKG_VERSION"),
  about = "CLI autocontenido denoise v1 — elimina ruido de video con DPDFNet ONNX",
-    override_usage = "denoise INPUT... [--output-name NAME | --output-dir DIR] [--prefix STR] [--suffix STR]\n  [--recursive] [--overwrite | --skip-existing]\n  [--audio-bitrate KBPS] [--model-dir DIR] [--ffmpeg-path PATH]\n  [--dry-run] [--json] [--verbose] [--version]",
+    override_usage = "denoise INPUT... [--output-name NAME] [--output-dir DIR] [--prefix STR] [--suffix STR]\n  [--recursive] [--overwrite | --skip-existing]\n  [--audio-bitrate KBPS] [--model-dir DIR] [--ffmpeg-path PATH]\n  [--dry-run] [--json] [--verbose] [--version]",
     disable_version_flag = true
 )]
 pub struct Cli {

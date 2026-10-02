@@ -14,7 +14,6 @@ pub struct ProbeResult {
     pub has_audio: bool,
     pub has_video: bool,
     pub duration: f64,
-    pub raw_stderr: String,
 }
 
 /// Encuentra `ffmpeg` en `--ffmpeg-path` o en PATH (usando `PATHEXT` en Windows).
@@ -160,7 +159,6 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
         has_audio,
         has_video,
         duration,
-        raw_stderr: stderr,
     })
 }
 

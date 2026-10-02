@@ -1,6 +1,6 @@
-//! Test suite para CLI y nombrado de salidas (Fase 1).
+//! Test suite para CLI y nombrado de salidas.
 //!
-//! Ver `plan.md T1.5`, `design.md §10 punto 1`, `specifications.md §2 RF-01..04, RF-10`.
+//! Ver `design.md §10 punto 1`, `specifications.md §2 RF-01..04, RF-10`.
 //! Todos estos tests son puros (sin ffmpeg ni red ni modelo ONNX).
 
 use denoise::cli::{
@@ -290,7 +290,7 @@ fn test_expansion_and_recursive_tree() {
     assert!(filenames.contains(&"root.mp4".to_string()));
     assert!(filenames.contains(&"nested.mov".to_string()));
     assert!(filenames.contains(&"deep.mkv".to_string()));
-    // Verificamos exclusiones D4 y output-dir anidado
+    // Verificamos exclusiones de ya-procesados y output-dir anidado
     assert!(!filenames.contains(&"already_denoised.mp4".to_string()));
     assert!(!filenames.contains(&"skip_me.mp4".to_string()));
 
