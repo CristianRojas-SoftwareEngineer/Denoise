@@ -24,7 +24,7 @@
 4. **Fallo explícito y limpio:** exit codes, temps siempre borrados, `String::from_utf8_lossy` en Windows.
 5. **CLI predecible para batch y scripting:** `--dry-run`, `--json`, `--skip-existing`, lote secuencial.
 6. **Implementación legible Rust:** `stable 1.88+ edition 2021`, `PathBuf`, `clippy+rustfmt`, `anyhow` en bin / `thiserror` en lib, `eprintln!` a `stderr` (`--verbose` debug), funciones pequeñas, sin estado global salvo sesiones `ort` cacheadas (`Mutex`).
-7. **Testing por pirámide:** unitarias rápidas con `ffmpeg 6+` real sin red/modelo (`cargo test`, ), doradas DSP bloqueantes + e2e `remux` con `#[ignore]` (slow) vía `cargo test -- --ignored`.
+7. **Testing por pirámide:** unitarias rápidas con `ffmpeg 6+` real sin red/modelo (`cargo test`), doradas DSP bloqueantes + e2e `remux` con `#[ignore]` (slow) vía `cargo test --release -- --ignored`.
 8. **Documentación como contrato:** `README.md` (MIT + atribución Apache 2.0 Ceva-IP/DPDFNet) + `--help` + ejemplos idénticos a §4; `CHANGELOG.md` por release (inicial `1.0.0`); `LICENSE` MIT en raíz.
 
 ## 3. Estructura mínima propuesta (todo dentro de este repo, raíz `./`)
@@ -55,7 +55,7 @@
  test_naming.rs # reglas prefix/suffix/output-dir (--output-name) (sin ffmpeg/red)
  common/si_sdr.rs # helper SI-SDR Rust puro (cada test lo declara: #[path = "common/si_sdr.rs"] mod si_sdr)
  test_golden.rs # voz real + ruido (3s SNR 0dB, 65s SNR 10dB) → mejora SI-SDR + paridad (#[ignore] slow)
- test_remux.rs # codec/res/fps/duración/bitrate, sin re-encode (#[ignore] slow)
+ test_remux.rs # duración ±0.5s + hash h264 (stream copy, sin checks de vcodec/res/fps/bitrate) (#[ignore] slow)
  test_errors.rs # E_* + overwrite/skip (Ctrl+C no se simula en tests, solo manual)
  test_reporter.rs # orden [i/N], JSONL parseable, summary ok/failed/skipped
   data/README.md # vectores con voz real del EvalSet + generador (`cargo run --release --example gen_vectors`, solo manual; no corre en `cargo test`)
@@ -183,7 +183,7 @@ Batch nunca aborta en el primer fallo (salvo `Ctrl+C`): continúa y resume `ok/f
 Reporte dinámico pero ordenado (sin nuevos flags):
 * Humano (defecto, TTY): cabecera `[i/N] in → out`, una barra viva por video a `stderr` (`indicatif`; `hidden()` solo con `--json`), más línea final por video `done|failed|skipped + MB + segundos`. Resumen final siempre visible. Flush explícito, sin emojis, ASCII seguro en `pwsh`.
 * Humano sin TTY/CI: mismo comportamiento que con TTY (cabecera `[i/N]` + líneas por fase, sin animación real porque `indicatif` va a `stderr`).
-* `--verbose`: añade a `stderr` comando `ffmpeg` exacto, `model-dir`, tiempos por fase, tamaños `in.wav/out.wav`, y conserva temps.
+* `--verbose`: añade a `stderr` el detalle del escaneo y nomenclatura (exclusión de `output-dir` anidado, exclusión de `*<suffix>.mp4`, entrada fuera de cwd resuelta con nombre plano) y conserva temps (`.tmp.*.wav`/`.part.mp4`).
 * `--json`: desactiva animación; `stdout` = `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct` según mapeo `0/1-5/6-80/81-95/96-99/100` —`skipped` SIEMPRE `pct=0`—, `summary` sin `pct`); progreso humano suprimido. Parseable con `jq`. Ver `docs/specifications.md RF-08`. (`--json + --verbose` combinables —debug a `stderr` + conserva `.wav`/`.part`, `stdout` intacto).
 * `--dry-run`: tabla `input → output (skip: motivo)` sin escribir/crear nada, mismo orden que el lote real, solo lectura `stat` para colisión; sin `ffmpeg/modelo/has_audio` (+ (con `--json` emite `JSONL` con `status="dry-run" pct=0`). (exit `0` con CLI estructuralmente válida; errores estructurales — flags inválidos/combinados, bitrate fuera de rango, prefix+suffix inválidos, lote vacío— fallan antes de simular con exit `2` sin reporte; per-archivo se reporta con exit `0`). (el dry-run SIMULA la intención de los flags de colisión — destino existente con `--overwrite` → `would overwrite`, sin `--overwrite` → `would fail: E_OUTPUT_EXISTS`, con `--skip-existing` → `would skip`; per-archivo, exit `0`).
 * `--version`: imprime `denoise 1.0.0 + modelo DPDFNet + ffmpeg <ver>` desde `Cargo.toml` vía `env!("CARGO_PKG_VERSION")` (sin `ffmpeg` imprime `ffmpeg missing`). Ver `docs/specifications.md RF-10`.
@@ -205,9 +205,9 @@ Summary: ok=4 failed=1 skipped=0
 
 ## 10. Plan de verificación mínima
 
-1. `test_naming` (rápido, sin ffmpeg/red): 1 archivo, N archivos, `--output-dir`, `prefix/suffix`, `--output-name` solo lote==1 → error si lote `>1` (; vale dir con 1 video), `--output-name` + `--output-dir` complementarios, colisión + `overwrite/skip`, `--recursive` recrea árbol relativo a cwd (2 dirs mismo `sub/x.mp4` → 2 salidas) + dedup lexical + exclusión output anidado + exclusión `*<suffix>.mp4`, caracteres inválidos + `.`/`..` → `E_INVALID_INPUT`, `--output-name` resolviendo a la propia entrada sin `prefix/suffix` → `E_INVALID_INPUT`.
+1. `test_naming` (rápido, sin ffmpeg/red): 1 archivo, N archivos, `--output-dir`, `prefix/suffix`, `--output-name` solo lote==1 → error si lote `>1` (vale dir con 1 video), `--output-name` + `--output-dir` complementarios, colisión + `overwrite/skip`, `--recursive` recrea árbol relativo a cwd (2 dirs mismo `sub/x.mp4` → 2 salidas) + dedup lexical + exclusión output anidado + exclusión `*<suffix>.mp4`, caracteres inválidos + `.`/`..` → `E_INVALID_INPUT`, `--output-name` resolviendo a la propia entrada sin `prefix/suffix` → `E_INVALID_INPUT`.
 2. `test_golden` (`#[ignore]` slow): generador Rust (`cargo run --release --example gen_vectors -- <dir_eval>`, voz real del EvalSet DPDFNet): par 3s a `SNR 0dB` + par 65s a `SNR 10dB`, `SR 48k` mono `PCM16` en disco (dato en memoria `f32`) en `tests/data/` → `mejora >=5dB` y `paridad vs referencia >=60dB` en el par 3s, paridad `>=60dB` en el par 65s. Falla si DSP difiere.
 3. `test_remux` (`#[ignore]` slow): fixture `ffmpeg -y -v error -f lavfi -i testsrc=size=640x480:rate=30:duration=5 -f lavfi -i sine=frequency=440:sample_rate=48000:duration=5 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 192k fixture.mp4` (sin `-shortest`) → duración `±0.5s` + `sha256` de `ffmpeg -y -v error -i OUT.mp4 -map 0:v:0 -c copy -f h264 -` idéntico al de la entrada (igualdad de hash h264, sin re-encode) + `verify_output_ligero` (prohibido comparar tamaño fichero total; sin checks de `vcodec/res/fps/extradata` ni `bitrate±10%`).
 4. `test_errors`: sin audio/solo-video → `E_NO_AUDIO`; solo-audio/corrupto en probe → `E_INVALID_INPUT`; ffmpeg ausente → `E_FFMPEG_NOT_FOUND`; descarga rota → `E_MODEL_MISSING`; destino existe → `E_OUTPUT_EXISTS`/`skipped`; `bitrate 9999` → `E_INVALID_INPUT`; `--output-name` resolviendo a la propia entrada sin `prefix/suffix` → `E_INVALID_INPUT` (incluso con `--overwrite`); disco/sin permiso/`--output-name`/`--output-dir`/`--model-dir` no creables → `E_IO`. Nada parcial en disco.
 5. `test_reporter`: lote 3 simulado verifica orden `[1/3..3/3]`, `JSONL` parseable, resumen `ok/failed/skipped`, sin animación con `--json`.
-6. Manual: 1 video corto Win + lote 5 videos, `--dry-run` primero (exit `0`, ), luego real + `--json`. Comandos: `cargo test` y `cargo test -- --ignored`.
+6. Manual: 1 video corto Win + lote 5 videos, `--dry-run` primero (exit `0`), luego real + `--json`. Comandos: `cargo test` y `cargo test --release -- --ignored`.

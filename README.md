@@ -13,7 +13,7 @@
 
 ## ⚡ Inicio Rápido (Quick Start)
 
-En menos de un minuto puedes tener la herramienta compilada y procesando tu primer video:
+En menos de un minuto (tras la compilación en release) puedes tener la herramienta procesando tu primer video:
 
 ```bash
 # 1. Clonar el repositorio
@@ -25,8 +25,19 @@ cargo build --release
 
 # 3. Ejecutar denoise sobre un video
 ./target/release/denoise "screencast_demo.mp4"
-# Genera: screencast_demo_denoised.mp4 con audio limpio (sin normalización)
+# Genera: screencast_demo_denoised.mp4
 ```
+
+### Coste del primer uso
+
+La primera ejecución descarga el modelo DPDFNet (~15 MB) a `~/.cache/denoise/models` y necesita conexión a internet. Ten en cuenta:
+
+- **Red**: requerida solo en la primera corrida; después el modelo se cachea y funciona offline.
+- **Verificación**: la descarga se valida con SHA-256 y se reintenta hasta 3 veces antes de fallar con `E_MODEL_MISSING`.
+- **Espacio en disco**: se requieren ~50 MB libres en el directorio del modelo; sin ellos la ejecución falla con `E_IO`.
+- **Integridad**: la descarga se hace en un archivo temporal y solo se renombra al completarse, así que una interrupción no deja un modelo corrupto.
+
+Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con una copia local del modelo.
 
 ---
 
@@ -36,6 +47,8 @@ cargo build --release
 - [Instalación y Requisitos](#-instalación-y-requisitos)
 - [Guía de Uso y Ejemplos](#-guía-de-uso-y-ejemplos)
 - [Referencia de Comandos CLI](#-referencia-de-comandos-cli)
+- [Limitaciones Conocidas](#-limitaciones-conocidas)
+- [Troubleshooting](#-troubleshooting)
 - [Arquitectura y Funcionamiento Interno](#-arquitectura-y-funcionamiento-interno)
 - [Desarrollo y Tests](#-desarrollo-y-tests)
 - [Estructura del Proyecto](#-estructura-del-proyecto)
@@ -48,7 +61,7 @@ cargo build --release
 - 🎙️ **Denoise Neuronal de Última Generación**: Utiliza DPDFNet (`dpdfnet8_48khz_hr.onnx`, grafo único stateful a 48 kHz) para separar eficazmente voz humana de ruidos continuos o transitorios (ventiladores, tráfico, reverberación, tecleo). Salida bit-exacta respecto a sherpa-onnx (1 LSB PCM16).
 - ⚡ **Stream Copy de Video Inalterado (`-c:v copy`)**: Sin recodificación de video, logrando tiempos de ejecución sumamente veloces y preservación visual idéntica al original.
 - 🎚️ **Sin Normalización Artificial**: La salida conserva la escala exacta del modelo (sin ganancia global ni limiter), lo que garantiza paridad con la referencia y máxima fidelidad.
-- 🔄 **Sincronización A/V Cuidadosa**: Manejo robusto de contenedores con *edit lists* (`-ignore_editlist 1`) para evitar cualquier desfase temporal entre video y audio procesado.
+- 🔄 **Sincronización A/V Cuidadosa**: Manejo robusto de contenedores con *edit lists* (`-ignore_editlist 1`, solo en `mov/mp4/m4v/m4a/3gp/3g2/mj2`) para evitar cualquier desfase temporal entre video y audio procesado.
 - 📁 **Procesamiento Masivo y Automatización**: Soporta lotes de archivos, exploración de carpetas recursiva (`--recursive`), prefijos/sufijos y omisión de archivos existentes (`--skip-existing`).
 - 🤖 **Modo Headless / CI / Scripts (`--json`)**: Emite reportes estructurados en formato JSON y códigos de salida estándar para pipelines de producción.
 - 📦 **Autodescarga y Validación de Modelos**: Descarga el modelo ONNX en el primer uso a `~/.cache/denoise/models` con verificación criptográfica SHA-256.
@@ -64,7 +77,7 @@ cargo build --release
    ```bash
    rustup update stable
    ```
-2. **FFmpeg 6.0+**: Debe estar disponible en el `PATH` del sistema.
+2. **FFmpeg 6.0+**: Debe estar disponible en el `PATH` del sistema. Verifícalo con `ffmpeg -version` (la versión debe ser 6 o superior; también se aceptan builds `N-` de nightly). Si no se detecta, la ejecución falla con `E_FFMPEG_NOT_FOUND`.
 
 #### Instalación de FFmpeg por Sistema Operativo
 
@@ -87,7 +100,7 @@ El binario ejecutable compilado estará ubicado en:
 
 *(Opcional) Instalar directamente en el PATH de Cargo:*
 ```bash
-cargo install --path.
+cargo install --path .
 ```
 
 ---
@@ -107,7 +120,7 @@ denoise "tutorial_screencast_01.mp4"
 denoise "raw_interview_take_03.mov" \
   --output-dir "./processed_videos" \
   --output-name "interview_take_03_clean"
-# Salida:./processed_videos/interview_take_03_clean.mp4
+# Salida: ./processed_videos/interview_take_03_clean.mp4 (la extensión .mp4 se añade automáticamente)
 ```
 
 ### 3. Procesamiento por Lote con Prefijos y Bitrate de Audio
@@ -117,7 +130,7 @@ denoise "./raw_takes/" \
   --output-dir "./clean_takes/" \
   --prefix "final_" \
   --suffix "_voice_enhanced" \
-  --audio-bitrate 192
+  --audio-bitrate 256
 ```
 
 ### 4. Modo Recursivo para Cursos o Grabaciones Múltiples
@@ -132,17 +145,28 @@ denoise "./Curso_Rust_2026/" \
 > [!TIP]
 > `--skip-existing` es ideal para reanudar trabajos de procesamiento interrumpidos sin repetir trabajo sobre archivos ya completados.
 
+> [!NOTE]
+> Con `--recursive` se excluyen del escaneo los archivos `*<suffix>.mp4` (evita `*_denoised_denoised.mp4`) y el `output-dir` si está anidado dentro del directorio de entrada. Exclusiones fuera de `cwd` se anuncian solo con `--verbose`.
+
 ### 5. Integración con Pipelines de Automatización (Salida JSON)
-Permite capturar el estado y métricas de procesamiento directamente desde scripts de Node.js, Python o CI/CD:
+Permite capturar el estado y métricas de procesamiento directamente desde scripts de Node.js, Python o CI/CD. Valida siempre el lote antes de ejecutarlo:
 ```bash
+denoise "./ingest/" --output-dir "./distribution/" --dry-run
 denoise "./ingest/" --output-dir "./distribution/" --json
 ```
 
-**Ejemplo de salida estructurada (`--json` = JSONL, una línea por archivo + resumen final):**
+**Salida:** `--json` emite **JSONL en streaming a `stdout`** (el progreso humano se suprime y va a `stderr`): una línea por evento de progreso, una línea final por archivo con `pct=100`, y una última línea de resumen. `status` ∈ `ok` | `failed` | `skipped` | `dry-run`; `skipped` y `dry-run` siempre reportan `pct=0` (nunca se procesaron).
+
 ```json
+{"input":"ingest/module_1.mp4","output":"distribution/module_1_denoised.mp4","status":"ok","message":"extrayendo audio","pct":1}
 {"input":"ingest/module_1.mp4","output":"distribution/module_1_denoised.mp4","status":"ok","message":"24.10 MB, 38.0s","pct":100}
-{"input":"ingest/module_2.mp4","output":"distribution/module_2_denoised.mp4","status":"ok","message":"18.55 MB, 31.2s","pct":100}
-{"summary":{"ok":2,"failed":0,"skipped":0}}
+{"input":"ingest/module_2.mp4","output":"distribution/module_2_denoised.mp4","status":"skipped","message":"skipped","pct":0}
+{"summary":{"ok":1,"failed":0,"skipped":1}}
+```
+
+Como cada línea es un objeto JSON independiente, se puede filtrar en streaming:
+```bash
+denoise "./ingest/" --output-dir "./distribution/" --json | jq -c 'select(.status != "ok")'
 ```
 
 ### 6. Rutas Personalizadas para Entornos Especiales
@@ -150,7 +174,7 @@ Si FFmpeg o los modelos se encuentran en rutas personalizadas o no estándar:
 ```bash
 denoise "podcast_episode_12.mp4" \
   --ffmpeg-path "C:\tools\ffmpeg\bin\ffmpeg.exe" \
- --model-dir "D:\AI_Models\DPDFNet"
+  --model-dir "D:\AI_Models\DPDFNet"
 ```
 
 ---
@@ -164,21 +188,27 @@ Uso: denoise [OPCIONES] <INPUT>...
 | Argumento / Opción | Tipo | Valor por Defecto | Descripción |
 |:--- |:--- |:--- |:--- |
 | `<INPUT>...` | Posicional | *(Obligatorio)* | Uno o más archivos de video o carpetas a procesar. |
-| `--output-dir <DIR>` | Opción | Directorio de origen | Directorio destino para los videos generados. |
-| `-o`, `--output-name <NAME>` | Opción | `None` | Nombre base del archivo de salida (válido únicamente para 1 video). |
-| `--prefix <TEXT>` | Opción | `""` | Prefijo que se antepondrá al nombre del archivo generado. |
-| `--suffix <TEXT>` | Opción | `"_denoised"` | Sufijo que se agregará antes de la extensión del archivo generado. |
+| `--output-dir <DIR>` | Opción | Junto al original | Directorio destino. Sin `--output-dir`: junto al original; con `--output-name` solo: `cwd`; con `--recursive`: recrea el árbol relativo a `cwd`. |
+| `-o`, `--output-name <NAME>` | Opción | `None` | Nombre base de salida (solo si el lote expandido == 1 video; `prefix`/`suffix` se ignoran; auto-añade `.mp4`; complementario con `--output-dir`). |
+| `--prefix <TEXT>` | Opción | `""` | Prefijo del archivo generado. Solo `[A-Za-z0-9._-]`, no `.`/`..`. |
+| `--suffix <TEXT>` | Opción | `"_denoised"` | Sufijo antes de la extensión. Mismas reglas que `--prefix`. |
 | `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio AAC de salida en kbps (rango 64-320) (ej: 128, 192, 256). |
 | `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
-| `--overwrite` | Flag | `false` | Sobrescribe el archivo destino si ya existe (excluyente con `--skip-existing`). |
+| `--overwrite` | Flag | `false` | Sobrescribe el destino si ya existe (excluyente con `--skip-existing`). Sin flags + destino existe → error `E_OUTPUT_EXISTS` (exit `2`). |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |
-| `--dry-run` | Flag | `false` | Simula el lote sin escribir nada ni invocar ffmpeg/modelo. |
-| `--verbose` | Flag | `false` | Muestra depuración detallada a `stderr` y conserva temporales. |
-| `--json` | Flag | `false` | Emite el reporte consolidado final en formato JSON estructurado. |
-| `--ffmpeg-path <PATH>` | Opción | `None` (detectado en PATH) | Ruta explícita al ejecutable de `ffmpeg`. |
-| `--model-dir <DIR>` | Opción | `~/.cache/denoise/models` | Directorio local donde se almacenan los modelos ONNX. |
+| `--dry-run` | Flag | `false` | Simula el lote sin escribir nada ni invocar ffmpeg/modelo (`exit 0`, `pct=0`). |
+| `--verbose` | Flag | `false` | Muestra depuración detallada a `stderr` y conserva temporales (`.tmp.*.wav`, `.part.mp4`). |
+| `--json` | Flag | `false` | Emite JSONL en streaming a `stdout` (líneas de progreso + línea final por archivo + resumen). |
+| `--ffmpeg-path <PATH>` | Opción | `None` (detectado en PATH) | Ruta explícita al ejecutable de `ffmpeg` (debe existir). |
+| `--model-dir <DIR>` | Opción | `~/.cache/denoise/models` | Directorio local de los modelos ONNX. |
 | `-h`, `--help` | Flag | — | Muestra la ayuda del CLI. |
-| `-V`, `--version` | Flag | — | Muestra la versión actual de la herramienta. |
+| `-V`, `--version` | Flag | — | Muestra `denoise <ver> + modelo DPDFNet + ffmpeg <ver>`. |
+
+> [!NOTE]
+> Colisión intra-lote (`a.mp4` + `a.mov` → mismo `a_denoised.mp4`): la salida se renombra a `_1`, `_2`… con aviso a `stderr`. Ambos `prefix`+`suffix` vacíos con salida in-place → `E_INVALID_INPUT`.
+
+> [!NOTE]
+> Los directorios de destino (`--output-dir`, `--output-name`, `--model-dir`) se crean automáticamente, incluidos sus directorios padre. Si no pueden crearse por permisos o por una ruta inválida, la ejecución falla con `E_IO` (exit `1`) sin dejar archivos parciales.
 
 ### Códigos de Salida del Proceso
 
@@ -187,19 +217,51 @@ Uso: denoise [OPCIONES] <INPUT>...
 - **`2`**: Error en los argumentos del CLI o validaciones de entrada.
 - **`3`**: Cancelación por `Ctrl+C` (temporales y `.part` borrados).
 
+> [!NOTE]
+> En un lote, el proceso **nunca se aborta** por un archivo fallido: continúa con el resto y devuelve el peor código de salida (`1` tiene prioridad sobre `2`; `3` por cancelación siempre gana).
+
+---
+
+## ⚠️ Limitaciones Conocidas
+
+- **Audio mono 48 kHz**: se procesa únicamente la primera pista de audio, convertida a mono 48 kHz. Las pistas de audio adicionales del original **no se conservan** en la salida.
+- **Solo el primer stream de video**: se copia `0:v:0`; el resto de streams de video se descartan.
+- **Sin subtítulos ni metadatos**: los subtítulos, capítulos y metadatos del contenedor original **no** se copian a la salida.
+- **Procesamiento secuencial**: los videos de un lote se procesan uno a uno, sin paralelismo. La inferencia es CPU-only (no usa GPU).
+- **Sin normalización ni loudness**: la salida conserva la escala exacta del modelo. Si el audio resultante queda muy bajo de volumen, es el comportamiento esperado; la herramienta no aplica ganancia automática.
+- **Remux a MP4**: la salida es siempre `.mp4` (con stream copy del video), independientemente de la extensión del archivo de entrada.
+
+---
+
+## 🩺 Troubleshooting
+
+| Síntoma / Error | Exit | Causa | Solución |
+|:--- |:--- |:--- |:--- |
+| `E_FFMPEG_NOT_FOUND` | `1` | ffmpeg no está en el `PATH` o es anterior a 6.0 | Instálalo (ver [Instalación y Requisitos](#-instalación-y-requisitos)) o usa `--ffmpeg-path`. Verifica con `ffmpeg -version`. |
+| `E_NO_AUDIO` | `2` | El vídeo no contiene ninguna pista de audio | Usa un vídeo con audio; no es un error de la herramienta. |
+| `E_INVALID_INPUT` | `2` | Ruta inexistente, archivo sin stream de vídeo (solo audio), archivo corrupto, extensión no soportada, `--output-name` con lote > 1, `prefix`+`suffix` vacíos en in-place, `--output-name` que resuelve a la propia entrada, o `--audio-bitrate` fuera de 64-320 | Corrige la entrada o los argumentos. Un vídeo sin pista de audio devuelve `E_NO_AUDIO`, no `E_INVALID_INPUT`. |
+| `E_OUTPUT_EXISTS` | `2` | El archivo de salida ya existe y no se pasó `--overwrite` ni `--skip-existing` | Añade `--overwrite` para sustituir o `--skip-existing` para omitir. |
+| `E_MODEL_MISSING` | `1` | Fallo al descargar el modelo (red, timeout de 60 s o SHA-256 incorrecto tras 3 intentos) | Reintenta; si persiste, descarga el modelo manualmente y colócalo en `--model-dir`. Una descarga interrumpida no deja el modelo corrupto: el fichero parcial se descarta. |
+| `E_IO` | `1` | Permisos insuficientes, disco lleno (<50 MB para el modelo) o ruta no creable | Verifica permisos y espacio libre, o cambia `--output-dir` / `--model-dir`. |
+| `E_FFMPEG_FAILED` | `1` | ffmpeg falló al extraer o reensamblar | Verifica que el vídeo no esté corrupto y que ffmpeg 6+ esté correctamente instalado. |
+| Cancelación | `3` | Pulsaste `Ctrl+C` | Los temporales se limpian automáticamente. Relanza con `--skip-existing` para reanudar. |
+| Salida con cola muda | `0` | El audio limpio es más corto que el video | Comportamiento esperado: la duración de salida sigue la del contenedor de entrada. |
+
+Para depurar un caso concreto, añade `--verbose` (detalla en `stderr` las exclusiones del escaneo y las decisiones de nomenclatura, y conserva los temporales `.tmp.*.wav` / `.part.mp4` para inspeccionarlos) y usa `--dry-run` para validar el lote sin procesar.
+
 ---
 
 ## 🔬 Arquitectura y Funcionamiento Interno
 
 ```mermaid
 flowchart LR
- A["Video Original<br/>(MP4 / MOV / MKV)"] --> B["FFmpeg Demux<br/>(PCM 48kHz Mono)"]
+  A["Video Original<br/>(MP4 / MOV / MKV / WEBM / AVI)"] --> B["FFmpeg Demux<br/>(PCM 48kHz Mono)"]
  B --> C["STFT<br/>(Ventana Vorbis 960)"]
  C --> D["DPDFNet ONNX<br/>(Grafo único stateful)"]
  D --> E["iSTFT Overlap-Add<br/>(Síntesis 48kHz)"]
- E --> G["FFmpeg Remux<br/>(AAC + Video Copy)"]
- A -.->|Video Stream copy| G
- G --> H["Video Procesado<br/>(Audio Limpio)"]
+  E --> F["FFmpeg Remux<br/>(AAC + Video Copy)"]
+  A -.->|Video Stream copy| F
+  F --> G["Video Procesado<br/>(Audio Limpio)"]
 ```
 
 1. **Demux y Extracción de Audio (`ffmpeg_io.rs`)**: FFmpeg extrae la primera pista de audio a WAV mono 48 kHz PCM16 (`-map 0:a:0 -vn -ac 1 -ar 48000`), que `df/mod.rs` lee como `i16` vía `hound` (`/32768.0`).
@@ -208,7 +270,7 @@ flowchart LR
 4. **Síntesis iSTFT (`df/stft.rs`)**:
  - Reconstruye la señal en el dominio del tiempo mediante iSTFT con síntesis *Overlap-Add* (réplica exacta de `knf::IStft` + recorte de 1920 muestras de sherpa-onnx).
  - Sin normalización ni limiter: la escala es la del modelo, bit-exacta con la referencia.
-5. **Remux de Video sin Pérdida (`ffmpeg_io.rs`)**: FFmpeg reensambla el contenedor combinando el flujo original de video (`-c:v copy`) con la nueva pista de audio codificada en AAC.
+5. **Remux de Video sin Pérdida (`ffmpeg_io.rs`)**: FFmpeg reensambla el contenedor combinando el flujo original de video (`-c:v copy`) con la nueva pista de audio codificada en AAC al bitrate solicitado. La duración de la salida se toma de la duración del contenedor de entrada, por lo que si el audio limpio resultante es más corto que el video, los últimos milisegundos quedan en silencio (comportamiento esperado, no un error). El detalle exacto de los argumentos está en [docs/design.md](docs/design.md).
 
 ---
 
@@ -216,12 +278,28 @@ flowchart LR
 
 ### Ejecución de Pruebas
 
+Las pruebas se dividen en dos niveles:
+
 ```bash
-# Ejecutar suite de pruebas unitarias y de integración estándar
+# Suite rápida: nomenclatura, errores y reportería.
+# Requiere ffmpeg 6+ real en el PATH, pero NO red ni modelo ONNX.
 cargo test
 
-# Ejecutar tests de integración completos (incluyendo inferencia ONNX y remux con FFmpeg)
-cargo test -- --ignored
+# Suite pesada (#[ignore]): vectores dorados de audio con inferencia ONNX real
+# y remux con FFmpeg. Tarda varios minutos.
+cargo test --release -- --ignored
+```
+
+Qué cubre cada nivel:
+
+| Nivel | Contenido |
+|:--- |:--- |
+| `cargo test` | `test_naming` (resolución de nombres, colisiones, recursión), `test_errors` (códigos de error con `FakeProvider`), `test_reporter` (orden y JSONL), `test_stft` (reconstrucción y delay) |
+| `cargo test --release -- --ignored` | `test_golden` (mejora ≥5 dB y paridad ≥60 dB frente a la referencia) y `test_remux` (stream copy y hash de vídeo) |
+
+Los vectores dorados son datos versionados en `tests/data/` y **no** se regeneran en CI. Para regenerarlos manualmente se usa el generador con voz real del EvalSet de DPDFNet:
+```bash
+cargo run --release --example gen_vectors -- <dir_eval>
 ```
 
 ### Video manual de prueba
@@ -245,10 +323,10 @@ cargo build --release
 │ ├── ffmpeg_io.rs # Invocación estructurada de FFmpeg (demux/remux/probe)
 │ ├── models.rs # Descarga y verificación SHA-256 de modelos ONNX
 │ ├── errors.rs # Tipos de errores fuertemente tipados y códigos de salida
-│ └── df/ # Núcleo DSP y procesamiento DPDFNet
-│ ├── stft.rs # STFT / iSTFT con ventana Vorbis 960 (48 kHz)
-│ ├── net.rs # Sesión stateful DPDFNet con ONNX Runtime CPU (`ort`)
-│ └── mod.rs # Orquestación WAV → WAV del pipeline
+ │ └── df/ # Núcleo DSP y procesamiento DPDFNet
+ │ │ ├── stft.rs # STFT / iSTFT con ventana Vorbis 960 (48 kHz)
+ │ │ ├── net.rs # Sesión stateful DPDFNet con ONNX Runtime CPU (`ort`)
+ │ │ └── mod.rs # Orquestación WAV → WAV del pipeline
 ├── docs/ # Documentación técnica de diseño y especificación
 │ ├── design.md # Arquitectura detallada, DSP y contratos de interfaz
 │ ├── specifications.md # Especificación de requerimientos RF, RNF y DoD
