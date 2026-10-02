@@ -33,7 +33,7 @@ pub struct PipelineParams<'a> {
     pub cancel_flag: Option<Arc<AtomicBool>>,
 }
 
-/// Guardia para limpiar archivos temporales en error o Drop (D31).
+/// Guardia para limpiar archivos temporales en error o Drop.
 struct TempCleaner {
     paths: Vec<PathBuf>,
     preserve: bool,
@@ -76,7 +76,7 @@ impl Drop for TempCleaner {
 /// Progreso:
 /// - 0: Inicio / colisión-check
 /// - 1-5%: Extracción de audio ffmpeg
-/// - 6-80%: Denoise DeepFilterNet3 por chunks
+/// - 6-80%: Denoise DPDFNet secuencial
 /// - 81-95%: Remux ffmpeg a `.part.mp4` + atomic rename
 /// - 96-99%: Verificación ligera
 /// - 100%: Completado
@@ -91,7 +91,7 @@ where
         }
     }
 
-    // 0. Crear directorios padre si no existen (D7)
+    // 0. Crear directorios padre si no existen
     if let Some(parent) = params.output.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent).map_err(E::EIo)?;
@@ -113,7 +113,7 @@ where
 
     progress_cb(0, "iniciando");
 
-    // Pre-chequeo: probe del contenedor (D6, D_k)
+    // Pre-chequeo: probe del contenedor
     let probe_res = probe(params.ffmpeg, params.input)?;
     if !probe_res.has_audio {
         return Err(E::ENoAudio);
@@ -157,7 +157,7 @@ where
         }
     }
 
-    // 6-80%: Denoise DeepFilterNet3 DSP
+    // 6-80%: Denoise DPDFNet DSP
     progress_cb(6, "eliminando ruido");
     denoise_wav_with_provider(
         &tmp_in_wav,
@@ -180,7 +180,7 @@ where
         }
     }
 
-    // 81-95%: Remux video + clean audio a .part.mp4 (D_d, D_k)
+    // 81-95%: Remux video + clean audio a.part.mp4
     progress_cb(81, "remuxando video");
     remux_copy(
         params.ffmpeg,
@@ -192,7 +192,7 @@ where
     )?;
     progress_cb(90, "remux completado");
 
-    // Rename atómico a OUT.mp4 (D_j)
+    // Rename atómico a OUT.mp4
     fs::rename(&out_part_mp4, params.output).map_err(E::EIo)?;
     progress_cb(95, "archivo renombrado");
 

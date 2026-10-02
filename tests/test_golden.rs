@@ -1,7 +1,7 @@
 //! Test golden `#[ignore]` — verificación SI-SDR con vectores PCM16 deterministas.
 //!
 //! Ver `specifications.md RNF-04` y `design.md §6`.
-//! Requiere modelo DFN3 descargado + `tests/data/*.wav` generados.
+//! Requiere modelo DPDFNet descargado + `tests/data/*.wav` generados.
 //! Ejecutar con `cargo test -- --ignored golden`.
 
 #[path = "common/si_sdr.rs"]
@@ -24,22 +24,22 @@ fn read_wav_f32(path: &Path) -> Vec<f32> {
 #[ignore]
 fn test_golden_3s() {
     let data_dir = Path::new("tests/data");
-    let voz_path = data_dir.join("voz.wav");
-    let mezcla_path = data_dir.join("mezcla10dB.wav");
-    let ref_path = data_dir.join("referencia_dfn3.wav");
+    let voz_path = data_dir.join("voz_clean.wav");
+    let mezcla_path = data_dir.join("voz_noisy.wav");
+    let ref_path = data_dir.join("referencia_dpdfnet.wav");
     let out_path = std::env::temp_dir().join("golden_3s_out.wav");
 
     assert!(
         voz_path.exists(),
-        "tests/data/voz.wav debe existir (ejecutar 'cargo run --example gen_vectors')"
+        "tests/data/voz_clean.wav debe existir (ejecutar 'cargo run --example gen_vectors')"
     );
     assert!(
         mezcla_path.exists(),
-        "tests/data/mezcla10dB.wav debe existir"
+        "tests/data/voz_noisy.wav debe existir"
     );
     assert!(
         ref_path.exists(),
-        "tests/data/referencia_dfn3.wav debe existir"
+        "tests/data/referencia_dpdfnet.wav debe existir"
     );
 
     denoise_wav(&mezcla_path, &out_path, |cur, tot| {
@@ -84,22 +84,22 @@ fn test_golden_3s() {
 #[ignore]
 fn test_golden_65s() {
     let data_dir = Path::new("tests/data");
-    let voz_path = data_dir.join("voz65s.wav");
-    let mezcla_path = data_dir.join("mezcla65s10dB.wav");
-    let ref_path = data_dir.join("referencia65s_dfn3.wav");
+    let voz_path = data_dir.join("voz65s_clean.wav");
+    let mezcla_path = data_dir.join("voz65s_noisy.wav");
+    let ref_path = data_dir.join("referencia65s_dpdfnet.wav");
     let out_path = std::env::temp_dir().join("golden_65s_out.wav");
 
     assert!(
         voz_path.exists(),
-        "tests/data/voz65s.wav debe existir (ejecutar 'cargo run --example gen_vectors')"
+        "tests/data/voz65s_clean.wav debe existir (ejecutar 'cargo run --example gen_vectors')"
     );
     assert!(
         mezcla_path.exists(),
-        "tests/data/mezcla65s10dB.wav debe existir"
+        "tests/data/voz65s_noisy.wav debe existir"
     );
     assert!(
         ref_path.exists(),
-        "tests/data/referencia65s_dfn3.wav debe existir"
+        "tests/data/referencia65s_dpdfnet.wav debe existir"
     );
 
     denoise_wav(&mezcla_path, &out_path, |cur, tot| {
@@ -126,7 +126,7 @@ fn test_golden_65s() {
         sdr_parity
     );
 
-    // Par 65s verifica continuidad entre 2 chunks y crossfade (paridad >= 60.0 dB)
+    // Par 65s verifica estabilidad en clips largos (paridad >= 60.0 dB)
     assert!(
         sdr_parity >= 60.0,
         "Paridad SI-SDR {:.2} dB debe ser >= 60.0 dB",

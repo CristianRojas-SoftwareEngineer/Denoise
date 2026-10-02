@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# verify.ps1 — build + test rápido → PASS/FAIL (D_s cerrado 2026-09-13)
+# verify.ps1 — build + test rápido → PASS/FAIL
 # Script local para Windows (PowerShell).
 #
 # Uso: .\verify.ps1

@@ -20,7 +20,7 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi"];
 #[command(
     name = "denoise",
     version = env!("CARGO_PKG_VERSION"),
-    about = "CLI autocontenido denoise v1 — elimina ruido de video con DeepFilterNet3 ONNX",
+ about = "CLI autocontenido denoise v1 — elimina ruido de video con DPDFNet ONNX",
     override_usage = "denoise INPUT... [--output-name NAME | --output-dir DIR] [--prefix STR] [--suffix STR]\n  [--recursive] [--overwrite | --skip-existing]\n  [--audio-bitrate KBPS] [--model-dir DIR] [--ffmpeg-path PATH]\n  [--dry-run] [--json] [--verbose] [--version]",
     disable_version_flag = true
 )]
@@ -81,7 +81,7 @@ pub struct Cli {
     #[arg(long = "verbose")]
     pub verbose: bool,
 
-    /// Imprimir versión detallada (denoise + modelo DFN3 + ffmpeg)
+    /// Imprimir versión detallada (denoise + modelo DPDFNet + ffmpeg)
     #[arg(short = 'V', long = "version", action = clap::ArgAction::SetTrue)]
     pub version: bool,
 }
@@ -127,7 +127,7 @@ pub struct JsonSummaryLine {
     pub summary: BatchSummary,
 }
 
-/// Normaliza una ruta lexicalmente contra `cwd` sin tocar disco ni resolver symlinks (D28).
+/// Normaliza una ruta lexicalmente contra `cwd` sin tocar disco ni resolver symlinks.
 pub fn normalize_lexical(path: &Path, cwd: &Path) -> PathBuf {
     let abs_path = if path.is_absolute() {
         path.to_path_buf()
@@ -176,7 +176,7 @@ pub fn is_supported_video(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Valida los caracteres permitidos en prefijos y sufijos: `[A-Za-z0-9._-]` y no `.` ni `..` exactos (D33).
+/// Valida los caracteres permitidos en prefijos y sufijos: `[A-Za-z0-9._-]` y no `.` ni `..` exactos.
 pub fn validate_affix(name: &str, affix_type: &str) -> Result<(), E> {
     if name.is_empty() {
         return Ok(());
@@ -227,7 +227,7 @@ pub fn expand_inputs(
                 &mut dir_files,
             )?;
 
-            // Orden determinista byte-wise UTF-8 (D21)
+            // Orden determinista byte-wise UTF-8
             dir_files.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
 
             for file in dir_files {
@@ -282,7 +282,7 @@ fn collect_dir_entries(
         let path = entry.path();
 
         if path.is_dir() {
-            // Excluir output-dir si está anidado (D4)
+            // Excluir output-dir si está anidado
             if let Some(out_d) = norm_out_dir {
                 if path == out_d {
                     if verbose {
@@ -298,7 +298,7 @@ fn collect_dir_entries(
                 collect_dir_entries(&path, recursive, norm_out_dir, suffix_filter, verbose, out)?;
             }
         } else if path.is_file() && is_supported_video(&path) {
-            // Excluir *<suffix>.mp4 en escaneos recursivos (D4)
+            // Excluir *<suffix>.mp4 en escaneos recursivos
             if recursive {
                 let fname = path
                     .file_name()
@@ -322,7 +322,7 @@ fn collect_dir_entries(
     Ok(())
 }
 
-/// Resuelve los paths de salida para un lote expandido según precedencia (D_o, D20, D27, D33, D35, D_e, D_p).
+/// Resuelve los paths de salida para un lote expandido según precedencia.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_outputs(
     expanded: &[PathBuf],
@@ -365,7 +365,7 @@ pub fn resolve_outputs(
         };
         let out_path = target_dir.join(&final_name);
 
-        // D_p: si --output-name resuelve a la propia entrada sin prefix/suffix -> E_INVALID_INPUT exit 2 siempre
+        // si --output-name resuelve a la propia entrada sin prefix/suffix -> E_INVALID_INPUT exit 2 siempre
         if normalize_lexical(&out_path, cwd) == normalize_lexical(input, cwd) {
             return Err(E::EInvalidInput(
                 "--output-name resuelve al mismo archivo de entrada".to_string(),
@@ -379,7 +379,7 @@ pub fn resolve_outputs(
         }]);
     }
 
-    // Si ambos prefijo y sufijo son vacíos y la salida es in-place -> E_INVALID_INPUT (D33)
+    // Si ambos prefijo y sufijo son vacíos y la salida es in-place -> E_INVALID_INPUT
     if pfx.is_empty() && sfx.is_empty() && output_dir.is_none() {
         return Err(E::EInvalidInput(
             "Prefijo y sufijo no pueden estar vacíos simultáneamente si la salida es in-place"
@@ -401,7 +401,7 @@ pub fn resolve_outputs(
             Some(od) => {
                 let base_out = normalize_lexical(od, cwd);
                 if recursive {
-                    // D27: recrear árbol relativo a cwd
+                    // recrear árbol relativo a cwd
                     let norm_in = normalize_lexical(input, cwd);
                     if let Ok(rel) = norm_in.parent().unwrap_or(&norm_in).strip_prefix(cwd) {
                         base_out.join(rel)
@@ -424,7 +424,7 @@ pub fn resolve_outputs(
         let mut candidate_out = out_dir.join(&filename);
         let mut is_adjusted = false;
 
-        // D_e: resolver colisiones intra-lote con _1, _2...
+        // resolver colisiones intra-lote con _1, _2...
         let mut key = dedup_key(&candidate_out);
         if used_outputs.contains(&key) {
             let mut counter = 1;
@@ -523,11 +523,11 @@ pub fn run_dry_run(
     Ok(())
 }
 
-/// Imprime versión según RF-10: `denoise 1.0.0 + modelo DFN3 v0.5.6 + ffmpeg <ver>`.
+/// Imprime versión según RF-10: `denoise 1.0.0 + modelo DPDFNet + ffmpeg <ver>`.
 pub fn print_version(ffmpeg_version: Option<&str>) {
     let pkg_ver = env!("CARGO_PKG_VERSION");
     let ff_str = ffmpeg_version.unwrap_or("ffmpeg missing");
-    println!("denoise {} + modelo DFN3 v0.5.6 + {}", pkg_ver, ff_str);
+    println!("denoise {} + modelo DPDFNet + {}", pkg_ver, ff_str);
 }
 
 /// Punto de entrada principal CLI.

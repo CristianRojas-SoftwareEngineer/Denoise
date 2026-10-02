@@ -137,7 +137,7 @@ fn test_remux_duracion_contenedor() {
     let clean_wav_path = temp_dir.join("test_remux_dur_clean.wav");
     let out_path = temp_dir.join("test_remux_dur_out.mp4");
 
-    // Audio más largo que video (D_k)
+    // Audio más largo que video
     generate_fixture_video(&ffmpeg, &fixture_path, 2, 4);
     generate_dummy_wav(&clean_wav_path, 4);
 
@@ -208,4 +208,3 @@ fn test_remux_mov_mp4_editlist_sync() {
     let _ = fs::remove_file(&clean_wav_path);
     let _ = fs::remove_file(&out_path);
 }
-

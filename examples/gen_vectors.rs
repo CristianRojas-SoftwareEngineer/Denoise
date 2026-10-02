@@ -1,70 +1,88 @@
 //! Generador de vectores de test deterministas para `test_golden` (RNF-04).
 //!
 //! Ejecutar con `cargo run --example gen_vectors`.
-//! Nunca se ejecuta en `cargo test` ni CI (preserva el congelado D14).
+//! Nunca se ejecuta en `cargo test` ni CI (preserva el congelado).
 //!
 //! Ver `docs/design.md §6` y `docs/specifications.md RNF-04`.
+//!
+//! Los vectores usan voz real extraída del conjunto de evaluación de DPDFNet
+//! (`Ceva-IP/DPDFNet_EvalSet`, Apache 2.0). Un tono sintético no sirve: DPDFNet
+//! lo clasifica como tono tonal y lo suprime, con lo que la aserción de mejora
+//! de SI-SDR mediría supresión de tono en lugar de mejora de voz.
 
 use denoise::df::denoise_wav;
-use hound::{WavSpec, WavWriter};
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use std::f32::consts::PI;
+use hound::{WavReader, WavSpec, WavWriter};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Longitud de los clips en muestras a 48 kHz.
+const SHORT_SECS: usize = 3;
+const LONG_SECS: usize = 65;
 
 const SR: u32 = 48000;
-const FREQ: f32 = 440.0;
-const AMPLITUDE: f32 = 0.5;
-const SNR_DB: f32 = 10.0;
 
-fn box_muller(rng: &mut StdRng) -> f32 {
-    let u1: f32 = rng.gen::<f32>().max(1e-7);
-    let u2: f32 = rng.gen::<f32>();
-    (-2.0 * u1.ln()).sqrt() * (2.0 * PI * u2).cos()
-}
+/// Lee un WAV PCM16 mono o estéreo y lo devuelve como mono f32 [-1, 1] a 48 kHz,
+/// remuestreando con interpolación lineal si el original no está a 48 kHz.
+fn read_wav_mono_f32(path: &Path) -> anyhow::Result<Vec<f32>> {
+    let mut reader = WavReader::open(path)?;
+    let spec = reader.spec();
+    let src_sr = spec.sample_rate;
+    let ch = spec.channels.max(1) as usize;
+    let raw: Vec<i16> = reader.samples::<i16>().collect::<Result<_, _>>()?;
+    let frames = raw.len() / ch;
 
-fn generate_pair(
-    duration_secs: usize,
-    seed: u64,
-    voz_path: &Path,
-    mezcla_path: &Path,
-) -> anyhow::Result<()> {
-    let num_samples = duration_secs * (SR as usize);
-    let mut rng = StdRng::seed_from_u64(seed);
-
-    let mut clean_samples_i16 = Vec::with_capacity(num_samples);
-    let mut mix_samples_i16 = Vec::with_capacity(num_samples);
-
-    // Potencia del seno: A^2 / 2 = 0.5^2 / 2 = 0.125
-    // Para SNR = 10dB -> Potencia de ruido = 0.0125 -> sigma = sqrt(0.0125)
-    let noise_sigma = (0.125_f32 / 10.0_f32.powf(SNR_DB / 10.0)).sqrt();
-
-    for i in 0..num_samples {
-        let t = i as f32 / (SR as f32);
-        let clean = AMPLITUDE * (2.0 * PI * FREQ * t).sin();
-        let noise = box_muller(&mut rng) * noise_sigma;
-        let mix = (clean + noise).clamp(-1.0, 1.0);
-
-        clean_samples_i16.push((clean * 32767.0).round() as i16);
-        mix_samples_i16.push((mix * 32767.0).round() as i16);
+    // Downmix a mono en el dominio original.
+    let mut mono = Vec::with_capacity(frames);
+    for f in 0..frames {
+        let mut acc = 0.0_f32;
+        for c in 0..ch {
+            acc += raw[f * ch + c] as f32;
+        }
+        mono.push(acc / ch as f32 / 32768.0);
     }
 
-    let spec = WavSpec {
-        channels: 1,
-        sample_rate: SR,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
+    if src_sr == SR {
+        return Ok(mono);
+    }
 
-    write_wav(voz_path, spec, &clean_samples_i16)?;
-    write_wav(mezcla_path, spec, &mix_samples_i16)?;
-
-    Ok(())
+    // Remuestreo lineal a 48 kHz para que los vectores congelados estén en la
+    // misma tasa que exige el pipeline.
+    let out_len = (mono.len() as u64 * SR as u64 / src_sr as u64) as usize;
+    let mut out = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        let pos = i as f64 * src_sr as f64 / SR as f64;
+        let i0 = pos.floor() as usize;
+        let frac = (pos - i0 as f64) as f32;
+        let a = mono.get(i0).copied().unwrap_or(0.0);
+        let b = mono.get(i0 + 1).copied().unwrap_or(a);
+        out.push(a + (b - a) * frac);
+    }
+    Ok(out)
 }
 
-fn write_wav(path: &Path, spec: WavSpec, samples: &[i16]) -> anyhow::Result<()> {
-    let mut writer = WavWriter::create(path, spec)?;
+/// Aplica una mezcla ruido+señal con la SNR objetivo, partiendo de `noise`.
+fn mix_at_snr(clean: &[f32], noise: &[f32], snr_db: f32) -> anyhow::Result<Vec<i16>> {
+    let n = clean.len().min(noise.len());
+    let sig_p: f64 = clean[..n].iter().map(|&v| (v as f64) * (v as f64)).sum();
+    let noi_p: f64 = noise[..n].iter().map(|&v| (v as f64) * (v as f64)).sum();
+    let g = (sig_p / (noi_p * 10f64.powf(snr_db as f64 / 10.0))).sqrt();
+    Ok((0..n)
+        .map(|i| {
+            ((clean[i] as f64 + g * noise[i] as f64).clamp(-1.0, 1.0) * 32767.0).round() as i16
+        })
+        .collect())
+}
+
+fn write_wav(path: &Path, samples: &[i16]) -> anyhow::Result<()> {
+    let mut writer = WavWriter::create(
+        path,
+        WavSpec {
+            channels: 1,
+            sample_rate: SR,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )?;
     for &s in samples {
         writer.write_sample(s)?;
     }
@@ -72,89 +90,129 @@ fn write_wav(path: &Path, spec: WavSpec, samples: &[i16]) -> anyhow::Result<()> 
     Ok(())
 }
 
+fn to_i16(samples: &[f32]) -> Vec<i16> {
+    samples
+        .iter()
+        .map(|&v| (v.clamp(-1.0, 1.0) * 32767.0).round() as i16)
+        .collect()
+}
+
+/// Construye un par (voz limpia, voz+ruido) a partir de las fuentes del
+/// conjunto de evaluación y escribe `*_clean.wav` y `*_noisy.wav`.
+fn build_pair(
+    data_dir: &Path,
+    tag: &str,
+    secs: usize,
+    clean_src: &Path,
+    noise_src: &Path,
+    snr_db: f32,
+) -> anyhow::Result<(std::path::PathBuf, std::path::PathBuf)> {
+    let n = secs * SR as usize;
+    let clean = read_wav_mono_f32(clean_src)?;
+    let noise = read_wav_mono_f32(noise_src)?;
+
+    if clean.len() < n {
+        anyhow::bail!(
+            "el clip fuente tiene {:.1}s, menos que los {}s solicitados",
+            clean.len() as f64 / SR as f64,
+            secs
+        );
+    }
+
+    // Elegimos la ventana de `secs` con mayor energia de voz, para no caer en
+    // tramos silenciosos que darian vectores degenerados.
+    let windows = clean.len() - n + 1;
+    let stride = 480.max(windows / 200);
+    let mut best_start = 0usize;
+    let mut best_energy = f64::NEG_INFINITY;
+    let mut s = 0usize;
+    while s < windows {
+        let e: f64 = clean[s..s + n]
+            .iter()
+            .map(|&v| (v as f64) * (v as f64))
+            .sum();
+        if e > best_energy {
+            best_energy = e;
+            best_start = s;
+        }
+        s += stride;
+    }
+    let clean_slice = clean[best_start..best_start + n].to_vec();
+
+    // El ruido se toma de la misma posicion relativa en su clip.
+    let noise_start = (best_start / clean.len() * noise.len()).min(noise.len().saturating_sub(n));
+    let noise_slice = noise[noise_start..(noise_start + n).min(noise.len())].to_vec();
+
+    let clean_path = data_dir.join(format!("{}_clean.wav", tag));
+    let noisy_path = data_dir.join(format!("{}_noisy.wav", tag));
+
+    write_wav(&clean_path, &to_i16(&clean_slice))?;
+    write_wav(
+        &noisy_path,
+        &mix_at_snr(&clean_slice, &noise_slice, snr_db)?,
+    )?;
+    Ok((clean_path, noisy_path))
+}
+
 fn main() -> anyhow::Result<()> {
     let data_dir = Path::new("tests/data");
     fs::create_dir_all(data_dir)?;
 
+    // Directorio del conjunto de evaluación de DPDFNet (Ceva-IP/DPDFNet_EvalSet,
+    // Apache 2.0) descargado como herramienta de un solo uso. Los vectores
+    // resultantes quedan congelados en tests/data y no lo requieren en runtime.
+    let eval_dir = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bench/eval"));
+
+    let clean_short = eval_dir.join("Clean/spanish_street_snr10_rt60none_0_mixture_clean.wav");
+    let noisy_short = eval_dir.join("Noisy/spanish_street_snr0_rt60none_0_mixture_noisy.wav");
+
+    if !clean_short.exists() || !noisy_short.exists() {
+        anyhow::bail!(
+ "Faltan las fuentes de voz real en {}. Uso: cargo run --example gen_vectors -- <dir_eval>",
+ eval_dir.display()
+ );
+    }
+
     println!("Generando vectores deterministas en {:?}...", data_dir);
 
-    // Par corto 3s (seed 0)
-    let voz_3s = data_dir.join("voz.wav");
-    let mezcla_3s = data_dir.join("mezcla10dB.wav");
-    let ref_3s = data_dir.join("referencia_dfn3.wav");
-
-    generate_pair(3, 0, &voz_3s, &mezcla_3s)?;
-    println!("  -> Generado voz.wav y mezcla10dB.wav (3s)");
-
-    println!("  -> Procesando referencia_dfn3.wav...");
+    // Par corto 3s a SNR 0 dB: el test golden exige mejora >= 5 dB, que con
+    // una mezcla suave a 10 dB no se alcanza (el modelo ya parte de 10 dB).
+    let (_voz_3s, mezcla_3s) =
+        build_pair(data_dir, "voz", SHORT_SECS, &clean_short, &noisy_short, 0.0)?;
+    println!(
+        " -> Generado voz_clean.wav y voz_noisy.wav ({})",
+        SHORT_SECS
+    );
+    let ref_3s = data_dir.join("referencia_dpdfnet.wav");
+    println!(" -> Procesando referencia_dpdfnet.wav...");
     denoise_wav(&mezcla_3s, &ref_3s, |cur, tot| {
-        print!("\r     Progreso 3s: {:.1}s / {:.1}s", cur, tot);
+        print!("\r Progreso {}s: {:.1}s / {:.1}s", SHORT_SECS, cur, tot);
     })?;
-    println!("\n  -> referencia_dfn3.wav creada.");
+    println!("\n -> referencia_dpdfnet.wav creada.");
 
-    let clean_r = hound::WavReader::open(&voz_3s)?;
-    let clean_s: Vec<i16> = clean_r.into_samples().map(|s| s.unwrap()).collect();
-    let out_r = hound::WavReader::open(&ref_3s)?;
-    let out_s: Vec<i16> = out_r.into_samples().map(|s| s.unwrap()).collect();
-
-    let mut dot = 0.0_f64;
-    let mut norm_c = 0.0_f64;
-    let mut norm_o = 0.0_f64;
-    for (&c, &o) in clean_s.iter().zip(&out_s) {
-        let cf = c as f64;
-        let of = o as f64;
-        dot += cf * of;
-        norm_c += cf * cf;
-        norm_o += of * of;
-    }
-    let norm_corr = dot / (norm_c.sqrt() * norm_o.sqrt());
-    println!("Normalized correlation <clean, out>: {:.4}", norm_corr);
+    // Par largo 65s, sobre un clip fuente mas largo que la ventana pedida.
+    let (_voz_65s, mezcla_65s) = build_pair(
+        data_dir,
+        "voz65s",
+        LONG_SECS,
+        &eval_dir.join("Clean/spanish_subway_snr10_rt60none_0_mixture_clean.wav"),
+        &eval_dir.join("Noisy/spanish_subway_snr10_rt60none_0_mixture_noisy.wav"),
+        10.0,
+    )?;
     println!(
-        "Norm clean: {:.0}, Norm out: {:.0}, Dot: {:.0}",
-        norm_c.sqrt(),
-        norm_o.sqrt(),
-        dot
+        " -> Generado voz65s_clean.wav y voz65s_noisy.wav ({})",
+        LONG_SECS
     );
 
-    // Calcular cross-correlation para encontrar el retardo exacto
-    let mut best_lag = 0;
-    let mut best_corr = f64::NEG_INFINITY;
-    for lag in -500..500 {
-        let mut corr = 0.0_f64;
-        let mut count = 0;
-        for i in 1000..2000 {
-            let j = (i as isize + lag) as usize;
-            if j < clean_s.len() && j < out_s.len() {
-                corr += (clean_s[i] as f64) * (out_s[j] as f64);
-                count += 1;
-            }
-        }
-        if count > 0 {
-            corr /= count as f64;
-            if corr > best_corr {
-                best_corr = corr;
-                best_lag = lag;
-            }
-        }
-    }
-    println!(
-        "Best correlation lag: {} samples (corr: {:.0})",
-        best_lag, best_corr
-    );
-
-    // Par largo 65s (seed 1)
-    let voz_65s = data_dir.join("voz65s.wav");
-    let mezcla_65s = data_dir.join("mezcla65s10dB.wav");
-    let ref_65s = data_dir.join("referencia65s_dfn3.wav");
-
-    generate_pair(65, 1, &voz_65s, &mezcla_65s)?;
-    println!("  -> Generado voz65s.wav y mezcla65s10dB.wav (65s)");
-
-    println!("  -> Procesando referencia65s_dfn3.wav...");
+    let ref_65s = data_dir.join("referencia65s_dpdfnet.wav");
+    println!(" -> Procesando referencia65s_dpdfnet.wav...");
     denoise_wav(&mezcla_65s, &ref_65s, |cur, tot| {
-        print!("\r     Progreso 65s: {:.1}s / {:.1}s", cur, tot);
+        print!("\r Progreso {}s: {:.1}s / {:.1}s", LONG_SECS, cur, tot);
     })?;
-    println!("\n  -> referencia65s_dfn3.wav creada.");
+    println!("\n -> referencia65s_dpdfnet.wav creada.");
 
     println!("¡Vectores generados exitosamente!");
     Ok(())

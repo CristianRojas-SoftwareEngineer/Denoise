@@ -38,7 +38,7 @@ pub fn find_ffmpeg(ffmpeg_path: Option<&Path>) -> Result<PathBuf, E> {
     }
 }
 
-/// Verifica que `ffmpeg` sea versión 6+ mediante `ffmpeg -version` (D_c).
+/// Verifica que `ffmpeg` sea versión 6+ mediante `ffmpeg -version`.
 pub fn verify_ffmpeg(ffmpeg: &Path) -> Result<String, E> {
     let output = Command::new(ffmpeg)
         .arg("-version")
@@ -64,7 +64,7 @@ pub fn verify_ffmpeg(ffmpeg: &Path) -> Result<String, E> {
         }
     }
 
-    // D_c: fallback a build git 'N-' (BtbN/gyan, nightly/master >= 6)
+    // fallback a build git 'N-' (BtbN/gyan, nightly/master >= 6)
     if first_line.contains("ffmpeg version N-") || first_line.contains("ffmpeg version git-") {
         return Ok(first_line.to_string());
     }
@@ -87,7 +87,7 @@ fn is_mov_mp4(path: &Path) -> bool {
     )
 }
 
-/// Analiza el contenedor de entrada mediante `ffmpeg -hide_banner -i` (D6, D_k).
+/// Analiza el contenedor de entrada mediante `ffmpeg -hide_banner -i`.
 pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
     if !input.exists() {
         return Err(E::EInvalidInput(format!(
@@ -117,7 +117,7 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
 
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    // Parsear duración del contenedor (D_k)
+    // Parsear duración del contenedor
     let re_dur = Regex::new(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)").unwrap();
     let duration = if let Some(caps) = re_dur.captures(&stderr) {
         let h: f64 = caps
@@ -137,7 +137,7 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
     let has_video = stderr.contains("Video:");
     let has_audio = stderr.contains("Audio:");
 
-    // D6: validaciones probe
+    // validaciones probe
     if !has_video && !has_audio {
         return Err(E::EInvalidInput(format!(
             "Archivo inválido o corrupto (sin streams de medios reconocidos): {}",
@@ -164,7 +164,7 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
     })
 }
 
-/// Extrae la primera pista de audio a WAV mono 48kHz PCM16 (D3):
+/// Extrae la primera pista de audio a WAV mono 48kHz PCM16:
 /// `ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav`
 pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<(), E> {
     let mut cmd = Command::new(ffmpeg);
@@ -197,7 +197,7 @@ pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<()
     Ok(())
 }
 
-/// Remuxa el video original con el audio procesado a AAC (D_d, D_k):
+/// Remuxa el video original con el audio procesado a AAC:
 /// `ffmpeg -y -v error -i IN -i TMP.out.wav -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <bitrate>k -t <dur_video> OUT.part.mp4`
 pub fn remux_copy(
     ffmpeg: &Path,

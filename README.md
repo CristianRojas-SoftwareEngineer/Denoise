@@ -4,7 +4,7 @@
 [![Rust: 1.88+](https://img.shields.io/badge/Rust-1.88%2B-orange.svg)](https://www.rust-lang.org/)
 [![Release: v1.0.0](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/CristianRojas-SoftwareEngineer/Denoise/releases/tag/v1.0.0)
 
-**`denoise`** es una herramienta de línea de comandos de alto rendimiento, autocontenida y multiplataforma escrita en **Rust**, diseñada para suprimir ruido de fondo y maximizar la inteligibilidad de la voz en grabaciones de video mediante redes neuronales profundas (**DeepFilterNet3 ONNX** + **ONNX Runtime CPU**).
+**`denoise`** es una herramienta de línea de comandos de alto rendimiento, autocontenida y multiplataforma escrita en **Rust**, diseñada para suprimir ruido de fondo y maximizar la inteligibilidad de la voz en grabaciones de video mediante redes neuronales profundas (**DPDFNet ONNX** + **ONNX Runtime CPU**).
 
 > [!NOTE]
 > **Cero Pérdida de Calidad de Video**: El procesamiento de video utiliza copia de flujo directa (*stream copy*, `-c:v copy`). La resolución, tasa de cuadros (fps), perfil de color y compresión de video original permanecen 100% inalterados.
@@ -45,9 +45,9 @@ cargo build --release
 
 ## ✨ Características Principales
 
-- 🎙️ **Denoise Neuronal de Última Generación**: Utiliza DeepFilterNet3 en 3 modelos ONNX (Encoder, ERB Decoder, DF Decoder) para separar eficazmente voz humana de ruidos continuos o transitorios (ventiladores, tráfico, reverberación, tecleo).
+- 🎙️ **Denoise Neuronal de Última Generación**: Utiliza DPDFNet (`dpdfnet8_48khz_hr.onnx`, grafo único stateful a 48 kHz) para separar eficazmente voz humana de ruidos continuos o transitorios (ventiladores, tráfico, reverberación, tecleo). Salida bit-exacta respecto a sherpa-onnx (1 LSB PCM16).
 - ⚡ **Stream Copy de Video Inalterado (`-c:v copy`)**: Sin recodificación de video, logrando tiempos de ejecución sumamente veloces y preservación visual idéntica al original.
-- 🎚️ **Compensación y Normalización de Pico (-1.0 dBFS)**: Compensa automáticamente la reducción de energía acústica post-filtrado, entregando niveles de voz óptimos sin saturación ni distorsión.
+- 🎚️ **Sin Normalización Artificial**: La salida conserva la escala exacta del modelo (sin ganancia global ni limiter), lo que garantiza paridad con la referencia y máxima fidelidad.
 - 🔄 **Sincronización A/V Cuidadosa**: Manejo robusto de contenedores con *edit lists* (`-ignore_editlist 1`) para evitar cualquier desfase temporal entre video y audio procesado.
 - 📁 **Procesamiento Masivo y Automatización**: Soporta lotes de archivos, exploración de carpetas recursiva (`--recursive`), prefijos/sufijos y omisión de archivos existentes (`--skip-existing`).
 - 🤖 **Modo Headless / CI / Scripts (`--json`)**: Emite reportes estructurados en formato JSON y códigos de salida estándar para pipelines de producción.
@@ -69,7 +69,7 @@ cargo build --release
 #### Instalación de FFmpeg por Sistema Operativo
 
 | Sistema Operativo | Comando de Instalación Recomendado |
-| :--- | :--- |
+|:--- |:--- |
 | **Windows** | `winget install Gyan.FFmpeg` &nbsp;*(o `choco install ffmpeg`)* |
 | **macOS** | `brew install ffmpeg` |
 | **Linux (Ubuntu / Debian)** | `sudo apt update && sudo apt install ffmpeg` |
@@ -87,7 +87,7 @@ El binario ejecutable compilado estará ubicado en:
 
 *(Opcional) Instalar directamente en el PATH de Cargo:*
 ```bash
-cargo install --path .
+cargo install --path.
 ```
 
 ---
@@ -107,7 +107,7 @@ denoise "tutorial_screencast_01.mp4"
 denoise "raw_interview_take_03.mov" \
   --output-dir "./processed_videos" \
   --output-name "interview_take_03_clean"
-# Salida: ./processed_videos/interview_take_03_clean.mov
+# Salida:./processed_videos/interview_take_03_clean.mov
 ```
 
 ### 3. Procesamiento por Lote con Prefijos y Bitrate de Audio
@@ -169,7 +169,7 @@ Si FFmpeg o los modelos se encuentran en rutas personalizadas o no estándar:
 ```bash
 denoise "podcast_episode_12.mp4" \
   --ffmpeg-path "C:\tools\ffmpeg\bin\ffmpeg.exe" \
-  --model-dir "D:\AI_Models\DeepFilterNet3"
+ --model-dir "D:\AI_Models\DPDFNet"
 ```
 
 ---
@@ -181,12 +181,12 @@ Uso: denoise [OPCIONES] <INPUT>...
 ```
 
 | Argumento / Opción | Tipo | Valor por Defecto | Descripción |
-| :--- | :--- | :--- | :--- |
+|:--- |:--- |:--- |:--- |
 | `<INPUT>...` | Posicional | *(Obligatorio)* | Uno o más archivos de video o carpetas a procesar. |
 | `-o`, `--output-dir <DIR>` | Opción | Directorio de origen | Directorio destino para los videos generados. |
 | `--output-name <NAME>` | Opción | `None` | Nombre base del archivo de salida (válido únicamente para 1 video). |
 | `--prefix <TEXT>` | Opción | `""` | Prefijo que se antepondrá al nombre del archivo generado. |
-| `--suffix <TEXT>` | Opción | `"_denoise"` | Sufijo que se agregará antes de la extensión del archivo generado. |
+| `--suffix <TEXT>` | Opción | `"_denoised"` | Sufijo que se agregará antes de la extensión del archivo generado. |
 | `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio AAC de salida en kbps (ej: 128, 192, 256). |
 | `-r`, `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |
@@ -209,25 +209,21 @@ Uso: denoise [OPCIONES] <INPUT>...
 
 ```mermaid
 flowchart LR
-    A["Video Original<br/>(MP4 / MOV / MKV)"] --> B["FFmpeg Demux<br/>(PCM 48kHz Mono)"]
-    B --> C["STFT<br/>(Ventana Vorbis 960)"]
-    C --> D["DeepFilterNet3 ONNX<br/>(Encoder + Decoders)"]
-    D --> E["iSTFT Overlap-Add<br/>(Síntesis 48kHz)"]
-    E --> F["Normalización<br/>(Peak -1.0 dBFS)"]
-    F --> G["FFmpeg Remux<br/>(AAC + Video Copy)"]
-    A -.->|Video Stream copy| G
-    G --> H["Video Procesado<br/>(Audio Limpio)"]
+ A["Video Original<br/>(MP4 / MOV / MKV)"] --> B["FFmpeg Demux<br/>(PCM 48kHz Mono)"]
+ B --> C["STFT<br/>(Ventana Vorbis 960)"]
+ C --> D["DPDFNet ONNX<br/>(Grafo único stateful)"]
+ D --> E["iSTFT Overlap-Add<br/>(Síntesis 48kHz)"]
+ E --> G["FFmpeg Remux<br/>(AAC + Video Copy)"]
+ A -.->|Video Stream copy| G
+ G --> H["Video Procesado<br/>(Audio Limpio)"]
 ```
 
 1. **Demux y Extracción de Audio (`ffmpeg_io.rs`)**: FFmpeg extrae la primera pista de audio decodificándola a PCM flotante de 32 bits a 48 kHz mono (`-vn -acodec pcm_f32le -ar 48000 -ac 1`).
 2. **Transformada Tiempo-Frecuencia (`stft.rs`)**: Divide la señal en tramas de 960 muestras (20 ms a 48 kHz) con 50% de solapamiento y ventana Vorbis (cumpliendo la condición de reconstrucción perfecta de Princen-Bradley).
-3. **Inferencia Neuronal DeepFilterNet3 (`model.rs` / `erb.rs`)**:
-   - **Encoder**: Genera representaciones latentes a partir de los coeficientes espectrales y 32 bandas ERB (*Equivalent Rectangular Bandwidth*).
-   - **ERB Decoder**: Calcula ganancias espectrales en escala ERB para la supresión general del ruido en todo el espectro.
-   - **DF Decoder**: Estima coeficientes de filtrado adaptativo complejo para armónicos finos en bajas frecuencias ($< 8$ kHz).
-4. **Síntesis y Normalización de Ganancia (`df_state.rs`)**:
-   - Reconstruye la señal en el dominio del tiempo mediante iSTFT con síntesis *Overlap-Add*.
-   - Escala el pico máximo de la señal a `-1.0 dBFS` si el audio procesado queda por debajo de este umbral, previniendo atenuación excesiva sin introducir saturación.
+3. **Inferencia Neuronal DPDFNet (`df/net.rs`)**: Grafo único stateful (`spec` + `state_in` → `spec_e` + `state_out`) ejecutado frame a frame por ONNX Runtime CPU, encadenando el estado recurrente sin trocear ni reiniciar. Sin bandas ERB externas: la normalización ocurre dentro del grafo.
+4. **Síntesis iSTFT (`df/stft.rs`)**:
+ - Reconstruye la señal en el dominio del tiempo mediante iSTFT con síntesis *Overlap-Add* (réplica exacta de `knf::IStft` + recorte de 1920 muestras de sherpa-onnx).
+ - Sin normalización ni limiter: la escala es la del modelo, bit-exacta con la referencia.
 5. **Remux de Video sin Pérdida (`ffmpeg_io.rs`)**: FFmpeg reensambla el contenedor combinando el flujo original de video (`-c:v copy`) con la nueva pista de audio codificada en AAC.
 
 ---
@@ -254,27 +250,26 @@ En entornos Windows PowerShell, puedes usar el script de verificación automatiz
 ## 📂 Estructura del Proyecto
 
 ```text
-├── Cargo.toml               # Manifiesto del proyecto y dependencias de crates
-├── verify.ps1               # Script PowerShell de verificación continua
+├── Cargo.toml # Manifiesto del proyecto y dependencias de crates
+├── verify.ps1 # Script PowerShell de verificación continua
 ├── src/
-│   ├── main.rs              # Punto de entrada de la aplicación
-│   ├── lib.rs               # Exportación de módulos para biblioteca y tests
-│   ├── cli.rs               # Definición de CLI con Clap y resolución de lotes
-│   ├── pipeline.rs          # Orquestador del pipeline completo de video/audio
-│   ├── ffmpeg_io.rs         # Invocación estructurada de FFmpeg (demux/remux/probe)
-│   ├── models.rs            # Descarga y verificación SHA-256 de modelos ONNX
-│   ├── errors.rs            # Tipos de errores fuertemente tipados y códigos de salida
-│   └── df/                  # Núcleo DSP y procesamiento DeepFilterNet3
-│       ├── stft.rs          # STFT / iSTFT con ventana Vorbis 960 (48 kHz)
-│       ├── erb.rs           # Banco de filtros Equivalent Rectangular Bandwidth
-│       ├── model.rs         # Sesiones de inferencia con ONNX Runtime CPU (`ort`)
-│       └── df_state.rs      # Estado DSP, convolución compleja y normalización
-├── docs/                    # Documentación técnica de diseño y especificación
-│   ├── design.md            # Arquitectura detallada, DSP y contratos de interfaz
-│   ├── specifications.md    # Especificación de requerimientos RF, RNF y DoD
-│   └── plan.md              # Plan de implementación por fases
-├── tests/                   # Tests de integración y validación con golden vectors
-└── CHANGELOG.md             # Registro de versiones y notas de lanzamiento
+│ ├── main.rs # Punto de entrada de la aplicación
+│ ├── lib.rs # Exportación de módulos para biblioteca y tests
+│ ├── cli.rs # Definición de CLI con Clap y resolución de lotes
+│ ├── pipeline.rs # Orquestador del pipeline completo de video/audio
+│ ├── ffmpeg_io.rs # Invocación estructurada de FFmpeg (demux/remux/probe)
+│ ├── models.rs # Descarga y verificación SHA-256 de modelos ONNX
+│ ├── errors.rs # Tipos de errores fuertemente tipados y códigos de salida
+│ └── df/ # Núcleo DSP y procesamiento DPDFNet
+│ ├── stft.rs # STFT / iSTFT con ventana Vorbis 960 (48 kHz)
+│ ├── net.rs # Sesión stateful DPDFNet con ONNX Runtime CPU (`ort`)
+│ └── mod.rs # Orquestación WAV → WAV del pipeline
+├── docs/ # Documentación técnica de diseño y especificación
+│ ├── design.md # Arquitectura detallada, DSP y contratos de interfaz
+│ ├── specifications.md # Especificación de requerimientos RF, RNF y DoD
+│ └── plan.md # Plan de implementación por fases
+├── tests/ # Tests de integración y validación con golden vectors
+└── CHANGELOG.md # Registro de versiones y notas de lanzamiento
 ```
 
 ---
@@ -282,5 +277,5 @@ En entornos Windows PowerShell, puedes usar el script de verificación automatiz
 ## 📄 Licencia y Atribuciones
 
 - **Código fuente**: Licenciado bajo [MIT License](LICENSE).
-- **Modelo DeepFilterNet3**: Desarrollado por Hendrik Schröter ([Rikorose/DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)), bajo licencia MIT.
+- **Modelo DPDFNet**: Desarrollado por Ceva-IP ([Ceva-IP/DPDFNet](https://github.com/ceva-ip/DPDFNet), variante `dpdfnet8_48khz_hr.onnx`), bajo licencia Apache 2.0.
 - **FFmpeg**: Herramienta multimedia externa licenciada bajo LGPL/GPL.

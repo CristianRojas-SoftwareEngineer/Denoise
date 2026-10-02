@@ -12,12 +12,9 @@ use std::path::{Path, PathBuf};
 
 #[test]
 fn test_repo_design_doc_exists() {
-    // D41: abre docs/design.md por nombre ASCII — verifica que el repo es accesible.
+    // abre docs/design.md por nombre ASCII — verifica que el repo es accesible.
     let design_path = Path::new("docs/design.md");
-    assert!(
-        design_path.exists(),
-        "docs/design.md debe existir (D41 test canario)"
-    );
+    assert!(design_path.exists(), "docs/design.md debe existir");
     let content = fs::read_to_string(design_path).expect("Leer docs/design.md");
     assert!(
         content.contains("Contrato CLI"),
@@ -123,13 +120,13 @@ fn test_naming_output_name_single_lot() {
     .expect("Resolución con output-name");
 
     assert_eq!(resolved.len(), 1);
-    // D35: auto añade .mp4
+    // auto añade .mp4
     assert_eq!(resolved[0].output, PathBuf::from("/workspace/final.mp4"));
 }
 
 #[test]
 fn test_naming_output_name_complementary_with_output_dir() {
-    // D_o: output-name y output-dir son complementarios; prefix/suffix se ignoran
+    // output-name y output-dir son complementarios; prefix/suffix se ignoran
     let cwd = Path::new("/workspace");
     let input = PathBuf::from("/workspace/a.mp4");
     let out_dir = PathBuf::from("/workspace/limpio");
@@ -154,7 +151,7 @@ fn test_naming_output_name_complementary_with_output_dir() {
 
 #[test]
 fn test_naming_output_name_lot_greater_than_one_error() {
-    // D20: --output-name con lote > 1 da error E_INVALID_INPUT
+    // --output-name con lote > 1 da error E_INVALID_INPUT
     let cwd = Path::new("/workspace");
     let inputs = vec![
         PathBuf::from("/workspace/a.mp4"),
@@ -173,7 +170,7 @@ fn test_naming_output_name_lot_greater_than_one_error() {
 
 #[test]
 fn test_naming_output_name_self_reference_error() {
-    // D_p: --output-name resolviendo a la propia entrada da E_INVALID_INPUT exit 2 siempre
+    // --output-name resolviendo a la propia entrada da E_INVALID_INPUT exit 2 siempre
     let cwd = Path::new("/workspace");
     let input = PathBuf::from("/workspace/a.mp4");
     let err = resolve_outputs(
@@ -198,7 +195,7 @@ fn test_naming_output_name_self_reference_error() {
 
 #[test]
 fn test_naming_empty_prefix_and_suffix_in_place_error() {
-    // D33: prefijo y sufijo vacíos simultáneamente in-place da E_INVALID_INPUT
+    // prefijo y sufijo vacíos simultáneamente in-place da E_INVALID_INPUT
     let cwd = Path::new("/workspace");
     let input = PathBuf::from("/workspace/a.mp4");
     let err = resolve_outputs(
@@ -223,7 +220,7 @@ fn test_naming_empty_prefix_and_suffix_in_place_error() {
 
 #[test]
 fn test_affix_validation_invalid_chars() {
-    // D33: solo [A-Za-z0-9._-] y prohibido '.' o '..'
+    // solo [A-Za-z0-9._-] y prohibido '.' o '..'
     assert!(validate_affix("valid_prefix-1.0", "prefijo").is_ok());
     assert!(validate_affix(".", "prefijo").is_err());
     assert!(validate_affix("..", "sufijo").is_err());
@@ -233,7 +230,7 @@ fn test_affix_validation_invalid_chars() {
 
 #[test]
 fn test_intra_batch_collision_dedup() {
-    // D_e: 2+ archivos en el lote resolviendo al mismo nombre reciben _1, _2...
+    // 2+ archivos en el lote resolviendo al mismo nombre reciben _1, _2...
     let cwd = Path::new("/workspace");
     let inputs = vec![
         PathBuf::from("/workspace/a.mp4"),
@@ -271,7 +268,7 @@ fn test_expansion_and_recursive_tree() {
     File::create(tmp_dir.join("root.mp4")).unwrap();
     File::create(tmp_dir.join("sub1/nested.mov")).unwrap();
     File::create(tmp_dir.join("sub1/sub2/deep.mkv")).unwrap();
-    File::create(tmp_dir.join("sub1/already_denoised.mp4")).unwrap(); // D4: excluido
+    File::create(tmp_dir.join("sub1/already_denoised.mp4")).unwrap(); // excluido
     File::create(tmp_dir.join("out_nested/skip_me.mp4")).unwrap(); // Excluido si out_dir
 
     let out_dir = tmp_dir.join("out_nested");
@@ -297,7 +294,7 @@ fn test_expansion_and_recursive_tree() {
     assert!(!filenames.contains(&"already_denoised.mp4".to_string()));
     assert!(!filenames.contains(&"skip_me.mp4".to_string()));
 
-    // D27: recrear árbol relativo a cwd
+    // recrear árbol relativo a cwd
     let resolved = resolve_outputs(
         &expanded,
         None,
