@@ -2,7 +2,7 @@
 //!
 //! Ver `specifications.md RNF-04` y `design.md §6`.
 //! Requiere modelo DPDFNet descargado + `tests/data/*.wav` generados.
-//! Ejecutar con `cargo test -- --ignored golden`.
+//! Ejecutar con `cargo test --release -- --ignored golden`.
 
 #[path = "common/si_sdr.rs"]
 mod si_sdr;
@@ -118,7 +118,7 @@ fn test_golden_65s() {
 
     let improvement = sdr_denoised - sdr_mix;
     eprintln!(
-        "Par 65s: SI-SDR mezcla = {:.2} dB, SI-SDR limpio = {:.2} dB, Mejora = {:.2} dB (mín 5.0 dB)",
+        "Par 65s: SI-SDR mezcla = {:.2} dB, SI-SDR limpio = {:.2} dB, Mejora = {:.2} dB (informativo: este par no asserta mejora, solo paridad)",
         sdr_mix, sdr_denoised, improvement
     );
     eprintln!(

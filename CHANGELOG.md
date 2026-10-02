@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Docs
+- `README.md`: overhaul de precisión y estructura. Secciones y subsecciones numeradas (`1.`-`11.` y `N.M`) con índice navegable de 24 entradas; nuevas secciones `Limitaciones Conocidas` y `Troubleshooting` (tabla error → exit → causa → solución); subsección de coste del primer uso (modelo ~15 MB, red solo en la primera corrida, ~50 MB libres); contrato CLI exacto (`--output-name`, `--output-dir`, `--json` como JSONL en streaming, `--dry-run`, `--verbose`, `--version`) y ejemplos corregidos.
+- `docs/design.md` y `docs/specifications.md`: índices navegables nuevos, con la numeración `§N` conservada por ser contrato citado desde `src/` y los tests. Numeración de §4 normalizada a `1.`-`8.`, referencias cruzadas rotas corregidas y residuos de sintaxis limpiados.
+- Documentación alineada con el comportamiento real del código: se retiran afirmaciones que ninguna verificación implementaba (`±0.2s` de duración en RF-05 y `±10%` de bitrate en RF-05B, ambos sustituidos por los umbrales realmente verificados, `±0.5s`), y se corrige la descripción de `--verbose` en RF-10, que atribuía un log de comandos ffmpeg inexistente.
+- Eliminados `docs/plan.md` y `verify.ps1`; el fixture manual renombrado a `assets/e2e_vertical_1080x1920_16s.mp4`.
+
+### Tests
+- `test_golden_65s`: el log marcaba la mejora con un umbral `mín 5.0 dB` que ese par no asserta (solo verifica paridad); ahora se informa como dato no verificado.
+
 ## 1.0.0 (2026-09-13)
 
 ### Features

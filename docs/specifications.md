@@ -107,7 +107,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 ### RF-05B Bitrate de audio parametrizable
 * **ID:** RF-05B. **Prioridad:** Media.
 * Flag `--audio-bitrate KBPS` (defecto `192`, rango `64-320`) para `-b:a`.
-* **Aceptación:** `denoise boda.mp4 --audio-bitrate 128` genera `aac 128k` verificado vía `ffmpeg -hide_banner -i` (±10%, sin `ffprobe`); valor fuera de rango → error `E_INVALID_INPUT`.
+* **Aceptación:** `denoise boda.mp4 --audio-bitrate 128` emite el audio con `-b:a 128k` en el remux; valor fuera del rango `64-320` → `E_INVALID_INPUT` (cubierto por `test_errors::test_invalid_bitrate`, que valida el rango del flag). El bitrate efectivo de la salida no se mide de forma automática en v1: no hay assert que compare el audio resultante contra el bitrate pedido, porque la verificación runtime ligera se limita a `>0B + duración ±0.5s + stream Audio presente` y `test_remux` hace `±0.5s` + hash h264.
 
 ### RF-06 Modelo autocontenido on-demand
 * **ID:** RF-06. **Prioridad:** Alta.
