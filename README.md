@@ -11,7 +11,7 @@
 
 ---
 
-## ⚡ Inicio Rápido (Quick Start)
+## 1. ⚡ Inicio Rápido (Quick Start)
 
 En menos de un minuto (tras la compilación en release) puedes tener la herramienta procesando tu primer video:
 
@@ -28,7 +28,7 @@ cargo build --release
 # Genera: screencast_demo_denoised.mp4
 ```
 
-### Coste del primer uso
+### 1.1. Coste del primer uso
 
 La primera ejecución descarga el modelo DPDFNet (~15 MB) a `~/.cache/denoise/models` y necesita conexión a internet. Ten en cuenta:
 
@@ -43,20 +43,34 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
 
 ## 📑 Tabla de Contenidos
 
-- [Características Principales](#-características-principales)
-- [Instalación y Requisitos](#-instalación-y-requisitos)
-- [Guía de Uso y Ejemplos](#-guía-de-uso-y-ejemplos)
-- [Referencia de Comandos CLI](#-referencia-de-comandos-cli)
-- [Limitaciones Conocidas](#-limitaciones-conocidas)
-- [Troubleshooting](#-troubleshooting)
-- [Arquitectura y Funcionamiento Interno](#-arquitectura-y-funcionamiento-interno)
-- [Desarrollo y Tests](#-desarrollo-y-tests)
-- [Estructura del Proyecto](#-estructura-del-proyecto)
-- [Licencia y Atribuciones](#-licencia-y-atribuciones)
+1. [⚡ Inicio Rápido (Quick Start)](#1--inicio-rápido-quick-start)
+   - [1.1. Coste del primer uso](#11-coste-del-primer-uso)
+2. [✨ Características Principales](#2--características-principales)
+3. [📥 Instalación y Requisitos](#3--instalación-y-requisitos)
+   - [3.1. Requisitos Previos](#31-requisitos-previos)
+   - [3.2. Instalación de FFmpeg por Sistema Operativo](#32-instalación-de-ffmpeg-por-sistema-operativo)
+   - [3.3. Compilación desde Código Fuente](#33-compilación-desde-código-fuente)
+4. [📖 Guía de Uso y Ejemplos](#4--guía-de-uso-y-ejemplos)
+   - [4.1. Procesamiento de un Video Individual](#41-procesamiento-de-un-video-individual)
+   - [4.2. Directorio y Nombre de Salida Personalizado](#42-directorio-y-nombre-de-salida-personalizado)
+   - [4.3. Procesamiento por Lote con Prefijos y Bitrate de Audio](#43-procesamiento-por-lote-con-prefijos-y-bitrate-de-audio)
+   - [4.4. Modo Recursivo para Cursos o Grabaciones Múltiples](#44-modo-recursivo-para-cursos-o-grabaciones-múltiples)
+   - [4.5. Integración con Pipelines de Automatización (Salida JSON)](#45-integración-con-pipelines-de-automatización-salida-json)
+   - [4.6. Rutas Personalizadas para Entornos Especiales](#46-rutas-personalizadas-para-entornos-especiales)
+5. [🎛️ Referencia de Comandos CLI](#5--referencia-de-comandos-cli)
+   - [5.1. Códigos de Salida del Proceso](#51-códigos-de-salida-del-proceso)
+6. [⚠️ Limitaciones Conocidas](#6--limitaciones-conocidas)
+7. [🩺 Troubleshooting](#7--troubleshooting)
+8. [🔬 Arquitectura y Funcionamiento Interno](#8--arquitectura-y-funcionamiento-interno)
+9. [🧪 Desarrollo y Tests](#9--desarrollo-y-tests)
+   - [9.1. Ejecución de Pruebas](#91-ejecución-de-pruebas)
+   - [9.2. Video manual de prueba](#92-video-manual-de-prueba)
+10. [📂 Estructura del Proyecto](#10--estructura-del-proyecto)
+11. [📄 Licencia y Atribuciones](#11--licencia-y-atribuciones)
 
 ---
 
-## ✨ Características Principales
+## 2. ✨ Características Principales
 
 - 🎙️ **Denoise Neuronal de Última Generación**: Utiliza DPDFNet (`dpdfnet8_48khz_hr.onnx`, grafo único stateful a 48 kHz) para separar eficazmente voz humana de ruidos continuos o transitorios (ventiladores, tráfico, reverberación, tecleo). Salida bit-exacta respecto a sherpa-onnx (1 LSB PCM16).
 - ⚡ **Stream Copy de Video Inalterado (`-c:v copy`)**: Sin recodificación de video, logrando tiempos de ejecución sumamente veloces y preservación visual idéntica al original.
@@ -69,9 +83,9 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
 
 ---
 
-## 📥 Instalación y Requisitos
+## 3. 📥 Instalación y Requisitos
 
-### Requisitos Previos
+### 3.1. Requisitos Previos
 
 1. **Rust 1.88+**: Instálalo o actualízalo con [rustup](https://rustup.rs/):
    ```bash
@@ -79,7 +93,7 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
    ```
 2. **FFmpeg 6.0+**: Debe estar disponible en el `PATH` del sistema. Verifícalo con `ffmpeg -version` (la versión debe ser 6 o superior; también se aceptan builds `N-` de nightly). Si no se detecta, la ejecución falla con `E_FFMPEG_NOT_FOUND`.
 
-#### Instalación de FFmpeg por Sistema Operativo
+### 3.2. Instalación de FFmpeg por Sistema Operativo
 
 | Sistema Operativo | Comando de Instalación Recomendado |
 |:--- |:--- |
@@ -88,7 +102,7 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
 | **Linux (Ubuntu / Debian)** | `sudo apt update && sudo apt install ffmpeg` |
 | **Linux (Arch)** | `sudo pacman -S ffmpeg` |
 
-### Compilación desde Código Fuente
+### 3.3. Compilación desde Código Fuente
 
 ```bash
 cargo build --release
@@ -105,16 +119,16 @@ cargo install --path .
 
 ---
 
-## 📖 Guía de Uso y Ejemplos
+## 4. 📖 Guía de Uso y Ejemplos
 
-### 1. Procesamiento de un Video Individual
+### 4.1. Procesamiento de un Video Individual
 Aplica reducción de ruido a un video individual. Por defecto, genera `<nombre>_denoised.mp4` en la misma carpeta:
 ```bash
 denoise "tutorial_screencast_01.mp4"
 # Salida: tutorial_screencast_01_denoised.mp4
 ```
 
-### 2. Directorio y Nombre de Salida Personalizado
+### 4.2. Directorio y Nombre de Salida Personalizado
 Útil para procesar tomas crudas y ordenarlas en carpetas de producción:
 ```bash
 denoise "raw_interview_take_03.mov" \
@@ -123,7 +137,7 @@ denoise "raw_interview_take_03.mov" \
 # Salida: ./processed_videos/interview_take_03_clean.mp4 (la extensión .mp4 se añade automáticamente)
 ```
 
-### 3. Procesamiento por Lote con Prefijos y Bitrate de Audio
+### 4.3. Procesamiento por Lote con Prefijos y Bitrate de Audio
 Procesa todos los videos de una carpeta, añadiendo prefijos identificadores y configurando un bitrate AAC específico:
 ```bash
 denoise "./raw_takes/" \
@@ -133,7 +147,7 @@ denoise "./raw_takes/" \
   --audio-bitrate 256
 ```
 
-### 4. Modo Recursivo para Cursos o Grabaciones Múltiples
+### 4.4. Modo Recursivo para Cursos o Grabaciones Múltiples
 Explora subdirectorios completos y omite archivos ya procesados en ejecuciones anteriores:
 ```bash
 denoise "./Curso_Rust_2026/" \
@@ -148,7 +162,7 @@ denoise "./Curso_Rust_2026/" \
 > [!NOTE]
 > Con `--recursive` se excluyen del escaneo los archivos `*<suffix>.mp4` (evita `*_denoised_denoised.mp4`) y el `output-dir` si está anidado dentro del directorio de entrada. Exclusiones fuera de `cwd` se anuncian solo con `--verbose`.
 
-### 5. Integración con Pipelines de Automatización (Salida JSON)
+### 4.5. Integración con Pipelines de Automatización (Salida JSON)
 Permite capturar el estado y métricas de procesamiento directamente desde scripts de Node.js, Python o CI/CD. Valida siempre el lote antes de ejecutarlo:
 ```bash
 denoise "./ingest/" --output-dir "./distribution/" --dry-run
@@ -169,7 +183,7 @@ Como cada línea es un objeto JSON independiente, se puede filtrar en streaming:
 denoise "./ingest/" --output-dir "./distribution/" --json | jq -c 'select(.status != "ok")'
 ```
 
-### 6. Rutas Personalizadas para Entornos Especiales
+### 4.6. Rutas Personalizadas para Entornos Especiales
 Si FFmpeg o los modelos se encuentran en rutas personalizadas o no estándar:
 ```bash
 denoise "podcast_episode_12.mp4" \
@@ -179,7 +193,7 @@ denoise "podcast_episode_12.mp4" \
 
 ---
 
-## 🎛️ Referencia de Comandos CLI
+## 5. 🎛️ Referencia de Comandos CLI
 
 ```text
 Uso: denoise [OPCIONES] <INPUT>...
@@ -210,7 +224,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 > [!NOTE]
 > Los directorios de destino (`--output-dir`, `--output-name`, `--model-dir`) se crean automáticamente, incluidos sus directorios padre. Si no pueden crearse por permisos o por una ruta inválida, la ejecución falla con `E_IO` (exit `1`) sin dejar archivos parciales.
 
-### Códigos de Salida del Proceso
+### 5.1. Códigos de Salida del Proceso
 
 - **`0`**: Procesamiento completado con éxito para todos los archivos.
 - **`1`**: Error general o procesamiento parcial (al menos un archivo falló en el lote).
@@ -222,7 +236,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 
 ---
 
-## ⚠️ Limitaciones Conocidas
+## 6. ⚠️ Limitaciones Conocidas
 
 - **Audio mono 48 kHz**: se procesa únicamente la primera pista de audio, convertida a mono 48 kHz. Las pistas de audio adicionales del original **no se conservan** en la salida.
 - **Solo el primer stream de video**: se copia `0:v:0`; el resto de streams de video se descartan.
@@ -233,11 +247,11 @@ Uso: denoise [OPCIONES] <INPUT>...
 
 ---
 
-## 🩺 Troubleshooting
+## 7. 🩺 Troubleshooting
 
 | Síntoma / Error | Exit | Causa | Solución |
 |:--- |:--- |:--- |:--- |
-| `E_FFMPEG_NOT_FOUND` | `1` | ffmpeg no está en el `PATH` o es anterior a 6.0 | Instálalo (ver [Instalación y Requisitos](#-instalación-y-requisitos)) o usa `--ffmpeg-path`. Verifica con `ffmpeg -version`. |
+| `E_FFMPEG_NOT_FOUND` | `1` | ffmpeg no está en el `PATH` o es anterior a 6.0 | Instálalo (ver [3. Instalación y Requisitos](#3--instalación-y-requisitos)) o usa `--ffmpeg-path`. Verifica con `ffmpeg -version`. |
 | `E_NO_AUDIO` | `2` | El vídeo no contiene ninguna pista de audio | Usa un vídeo con audio; no es un error de la herramienta. |
 | `E_INVALID_INPUT` | `2` | Ruta inexistente, archivo sin stream de vídeo (solo audio), archivo corrupto, extensión no soportada, `--output-name` con lote > 1, `prefix`+`suffix` vacíos en in-place, `--output-name` que resuelve a la propia entrada, o `--audio-bitrate` fuera de 64-320 | Corrige la entrada o los argumentos. Un vídeo sin pista de audio devuelve `E_NO_AUDIO`, no `E_INVALID_INPUT`. |
 | `E_OUTPUT_EXISTS` | `2` | El archivo de salida ya existe y no se pasó `--overwrite` ni `--skip-existing` | Añade `--overwrite` para sustituir o `--skip-existing` para omitir. |
@@ -251,7 +265,7 @@ Para depurar un caso concreto, añade `--verbose` (detalla en `stderr` las exclu
 
 ---
 
-## 🔬 Arquitectura y Funcionamiento Interno
+## 8. 🔬 Arquitectura y Funcionamiento Interno
 
 ```mermaid
 flowchart LR
@@ -274,9 +288,9 @@ flowchart LR
 
 ---
 
-## 🧪 Desarrollo y Tests
+## 9. 🧪 Desarrollo y Tests
 
-### Ejecución de Pruebas
+### 9.1. Ejecución de Pruebas
 
 Las pruebas se dividen en dos niveles:
 
@@ -302,7 +316,7 @@ Los vectores dorados son datos versionados en `tests/data/` y **no** se regenera
 cargo run --release --example gen_vectors -- <dir_eval>
 ```
 
-### Video manual de prueba
+### 9.2. Video manual de prueba
 Fixture real `assets/e2e_vertical_1080x1920_16s.mp4` (vertical 1080x1920, 16s, con audio) para probar casos de uso sin generar nada:
 ```bash
 cargo build --release
@@ -311,7 +325,7 @@ cargo build --release
 
 ---
 
-## 📂 Estructura del Proyecto
+## 10. 📂 Estructura del Proyecto
 
 ```text
 ├── Cargo.toml # Manifiesto del proyecto y dependencias de crates
@@ -340,7 +354,7 @@ cargo build --release
 
 ---
 
-## 📄 Licencia y Atribuciones
+## 11. 📄 Licencia y Atribuciones
 
 - **Código fuente**: Licenciado bajo [MIT License](LICENSE).
 - **Modelo DPDFNet**: Desarrollado por Ceva-IP ([Ceva-IP/DPDFNet](https://github.com/ceva-ip/DPDFNet), variante `dpdfnet8_48khz_hr.onnx`), bajo licencia Apache 2.0.

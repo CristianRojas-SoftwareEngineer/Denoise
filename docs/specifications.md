@@ -160,7 +160,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ## 5. Casos borde obligatorios
 
-1. Video vertical/teléfono, 4K, `mkv` con múltiples audios → se usa `0:v:0` + primera pista a mono vía `-map 0:a:0`; resto de pistas/subs se pierden (limitación documentada en `README.md` §Limitaciones Conocidas).
+1. Video vertical/teléfono, 4K, `mkv` con múltiples audios → se usa `0:v:0` + primera pista a mono vía `-map 0:a:0`; resto de pistas/subs se pierden (limitación documentada en `README.md` §6 Limitaciones Conocidas).
 2. Nombre con espacios/acentos/emoji + ruta >150 caracteres en Win.
 3. Video sin audio/solo-video → `E_NO_AUDIO`, imagen renombrada a `.mp4`/solo-audio/corrupto en probe → `E_INVALID_INPUT`, archivo `0B`, `bitrate` fuera de rango.
 4. Salida en disco distinto / sin permiso escritura (`E_IO`) / `--output-name`, `--output-dir`, `--model-dir` a carpeta inexistente (debe crearla, si no creable → `E_IO`) vs `--output-name` con lote expandido `>1` (debe fallar `E_INVALID_INPUT`) o `--output-name` resolviendo a la propia entrada sin `prefix/suffix` efectivo (debe fallar `E_INVALID_INPUT` siempre, incluso con `--overwrite`). (`--output-name` sin `.mp4` auto-añade, no falla).
