@@ -14,6 +14,7 @@
 5. [Historial](#5-historial)
 6. [Set ampliado a 8 clips (2026-10-03)](#6-set-ampliado-a-8-clips-2026-10-03)
 7. [Cómo iterar](#7-cómo-iterar)
+8. [Salida del par 65 s del set (2026-10-03)](#8-salida-del-par-65-s-del-set-2026-10-03)
 
 ## 1. Método
 
@@ -63,16 +64,16 @@ stateful sin troceado ni normalización de salida.
 
 ## 4. Limitaciones del set actual
 
-El set `tests_data` tiene 8 clips en 7 escenas (calle, metro, pub, auto,
-oficina, tren, restaurante) a SNR 0/5/10 dB, todos con voz española real del
-EvalSet DPDFNet. Los 6 pares nuevos son ventanas de 15 s con >=40 % de voz
-activa, cortadas de clips largos y remuestreadas de 16 kHz a 48 kHz, usando
-las mezclas nativas (sin re-escalado).
+El set `tests_data` tiene 7 clips a SNR 0/5/10 dB, todos con voz española real del
+EvalSet DPDFNet: el par heredado de 3 s más 6 ventanas nuevas de 15 s con
+>=40 % de voz activa, cortadas de clips largos y remuestreadas de 16 kHz a
+48 kHz, usando las mezclas nativas (sin re-escalado). Desde 2026-10-03 sale
+del set el par heredado `voz_65s` (ver §8).
 
-Límites restantes: un solo idioma; ventanas cortas (15 s, salvo el par
-heredado de 65 s); el par heredado `voz_65s` sigue dominado por silencio
-(20 % voz) y su ruido se fabricó re-mezclando en vez de usar la mezcla
-nativa. Ampliar idioma y duración queda como trabajo futuro.
+Límites restantes: un solo idioma; ventanas cortas (15 s, más el par heredado
+de 3 s); el par heredado `voz_65s` salió del set por estar dominado por
+silencio y no alcanzar el mínimo de voz activa (ver §8). Ampliar idioma y
+duración queda como trabajo futuro.
 
 ## 5. Historial
 
@@ -80,6 +81,7 @@ nativa. Ampliar idioma y duración queda como trabajo futuro.
 |---|---|---|---|---|---|---|
 | 2026-10-03 | Línea base DPDFNet | +6,68 | 0,838 | 1,196 | +2,67 | Primera medición con las tres métricas |
 | 2026-10-03 | Batería ampliada (p5, LUFS, RTF, DNSMOS) | +6,68 | 0,838 | 1,196 | +2,67 | Mismo DSP; la puerta ahora cubre 9 métricas. Detalle abajo |
+| 2026-10-03 | Batería 7 clips (sale `voz_65s`) | = | = | = | — | Sin cambio DSP; ver §8 |
 
 Batería ampliada (mismo DSP, mismos clips):
 
@@ -157,3 +159,17 @@ se revierte sin costo.
 **Regla de oro.** La baseline nunca se mueve para que un resultado pase;
 solo para ratificar una mejora que ya pasó. Es manual y deliberada por
 diseño: es la única forma de romper este sistema.
+
+## 8. Salida del par 65 s del set (2026-10-03)
+
+`voz_65s` sale de `tests_data`: queda muy por debajo del mínimo de voz
+activa que exige `tools/quality/README.md`, el resto es silencio casi
+digital y su ruido se fabricó re-mezclando en vez de usar la mezcla nativa.
+Ya estaba descalificado en §3 y la propia herramienta lo avisa en cada
+corrida. Los veredictos medidos con 8 clips (mezcla, gate, pausas) se
+mantienen en el historial tal cual se midieron; no se reescriben.
+
+Cambios: `tools/quality/clips.json` (7 clips), `tools/quality/baseline.json`
+(sin la clave `voz_65s`, resto intacto). Sus WAV quedan en `tests/data/`
+para `test_golden_65s` (estabilidad en archivos largos). Interino hasta
+reemplazarlo por un clip largo representativo (ver §4).

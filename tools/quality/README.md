@@ -81,8 +81,10 @@ tasa de muestreo; la salida la genera `run`. Criterios para que un clip sirva:
 - varias SNRs (0/5/10 dB) y condiciones de ruido;
 - la referencia limpia debe ser una grabación real, no salida de otro modelo.
 
-El set actual (`tests_data`) es mínimo: 2 clips heredados de `gen_vectors`, con
-el par de 65 s dominado por silencio (>80 %). Ampliarlo es el paso pendiente.
+El set actual (`tests_data`) es mínimo: el par heredado de 3 s más 6 ventanas
+de 15 s. El par de 65 s salió del set el 2026-10-03 (dominado por silencio,
+debajo del mínimo de voz activa); reemplazarlo por un clip largo
+representativo es el paso pendiente.
 
 ## Detalles de implementación
 

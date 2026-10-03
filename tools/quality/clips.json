@@ -10,12 +10,6 @@
           "output_name": "voz_3s_out.wav"
         },
         {
-          "name": "voz_65s",
-          "clean": "tests/data/voz65s_clean.wav",
-          "noisy": "tests/data/voz65s_noisy.wav",
-          "output_name": "voz_65s_out.wav"
-        },
-        {
           "name": "pub_snr0",
           "clean": "tests/data/pub_snr0_clean.wav",
           "noisy": "tests/data/pub_snr0_noisy.wav",

@@ -30,38 +30,6 @@
       "active_fraction": 0.9,
       "warnings": []
     },
-    "voz_65s": {
-      "name": "voz_65s",
-      "sr": 48000,
-      "seconds": 65.0,
-      "si_sdr_in": 10.0,
-      "si_sdr_out": 12.67,
-      "si_sdr_gain": 2.67,
-      "si_sdr_gain_speech": 21.39,
-      "si_sdr_p5": 11.62,
-      "stoi_in": 0.9374396254410651,
-      "stoi_out": 0.9752846818132956,
-      "pesq_in": 1.9904578924179077,
-      "pesq_out": 3.3879668712615967,
-      "dnsmos_sig_in": 3.126024843417098,
-      "dnsmos_sig_out": 3.109006587458638,
-      "dnsmos_bak_in": 3.0556827750703475,
-      "dnsmos_bak_out": 3.880803782424541,
-      "dnsmos_ovr_in": 2.4468932529581395,
-      "dnsmos_ovr_out": 2.7059264101994462,
-      "level_in": -14.51,
-      "level_out": -14.65,
-      "level_delta": -0.13,
-      "lufs_in": -25.97,
-      "lufs_out": -25.29,
-      "lufs_delta": 0.68,
-      "rtf": 0.9407,
-      "lag": 0,
-      "active_fraction": 0.202,
-      "warnings": [
-        "solo 20 % de voz activa: métrica poco representativa"
-      ]
-    },
     "pub_snr0": {
       "name": "pub_snr0",
       "sr": 48000,

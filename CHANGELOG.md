@@ -16,6 +16,7 @@
 - Batería ampliada: SI-SDR por ventanas con percentil 5 (peor segundo audible, excluye silencio digital y contenido 50 dB bajo el pico), sonoridad LUFS BS.1770 (validada a 0,000 contra teoría), RTF por clip desde el harness y DNSMOS SIG/BAK/OVR sin referencia (vía `torchmetrics`, modelo oficial Microsoft, 2,4 MB). Puerta de 9 métricas con tolerancias justificadas por datos (DNSMOS: desvío 0,000000 en 5 corridas → OVR ±0,1, SIG/BAK ±0,15).
 - `docs/metrics.md`: significado de cada métrica explicado sin jerga; `docs/benchmark.md`: registro histórico, con línea base DPDFNet 2026-10-03 (par 3 s a SNR 0 dB: +6,68 dB SI-SDR, STOI 0,838, PESQ 1,196; par 65 s a SNR 10 dB: +2,67 dB).
 - `README.md`: nueva subsección `9.3. Benchmark de calidad de audio` y árbol de `§10` actualizado con los ficheros nuevos.
+- Batería `tests_data` de 8 a 7 clips: sale `voz_65s` (debajo del mínimo de voz activa, ya descalificado en `docs/benchmark.md` §3); `baseline.json` pierde solo su clave (resto intacto, RTF preservados), WAVs intactos para `test_golden_65s`. Sin cambio DSP. Interino hasta reemplazarlo por un clip largo representativo.
 
 ## 1.0.0 (2026-09-13)
 

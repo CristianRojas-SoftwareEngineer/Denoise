@@ -39,4 +39,4 @@ actual. Paridad verificada contra sherpa-onnx (1 LSB PCM16).
 
 ## Benchmark de calidad
 
-Los pares (`voz_clean.wav`, `voz_noisy.wav`) y (`voz65s_clean.wav`, `voz65s_noisy.wav`) son además el set `tests_data` del benchmark (`tools/quality/clips.json`): las salidas del DSP sobre estos mismos archivos se puntúan contra la voz limpia. Ver [docs/metrics.md](../../docs/metrics.md) y [docs/benchmark.md](../../docs/benchmark.md). Si se regeneran o sustituyen los vectores, hay que re-ejecutar el benchmark y actualizar `tools/quality/baseline.json`.
+El par (`voz_clean.wav`, `voz_noisy.wav`) es además parte del set `tests_data` del benchmark (`tools/quality/clips.json`): las salidas del DSP sobre estos mismos archivos se puntúan contra la voz limpia. Ver [docs/metrics.md](../../docs/metrics.md) y [docs/benchmark.md](../../docs/benchmark.md). El par de 65 s salió del set el 2026-10-03 (ver `docs/benchmark.md` §8) y queda solo como fixture de `test_golden_65s`. Si se regeneran o sustituyen los vectores, hay que re-ejecutar el benchmark y actualizar `tools/quality/baseline.json`.
