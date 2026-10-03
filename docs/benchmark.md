@@ -12,6 +12,7 @@
 3. [Lectura de la línea base](#3-lectura-de-la-línea-base)
 4. [Limitaciones del set actual](#4-limitaciones-del-set-actual)
 5. [Historial](#5-historial)
+6. [Set ampliado a 8 clips (2026-10-03)](#6-set-ampliado-a-8-clips-2026-10-03)
 
 ## 1. Método
 
@@ -61,12 +62,16 @@ stateful sin troceado ni normalización de salida.
 
 ## 4. Limitaciones del set actual
 
-El set `tests_data` es mínimo y heredado: 2 clips, 1 idioma, 2 condiciones de
-ruido, y el par largo dominado por silencio. Además el "ruido" de los fixtures
-se fabricó re-mezclando una grabación ya ruidosa, no es ruido real aislado.
-Cualquier optimización puntuada solo contra este set corre el riesgo de
-ajustarse a la medición en vez de a la calidad. El paso pendiente es ampliarlo
-(EvalSet DPDFNet, selección por actividad de voz, 3 SNRs × 3 condiciones).
+El set `tests_data` tiene 8 clips en 7 escenas (calle, metro, pub, auto,
+oficina, tren, restaurante) a SNR 0/5/10 dB, todos con voz española real del
+EvalSet DPDFNet. Los 6 pares nuevos son ventanas de 15 s con >=40 % de voz
+activa, cortadas de clips largos y remuestreadas de 16 kHz a 48 kHz, usando
+las mezclas nativas (sin re-escalado).
+
+Límites restantes: un solo idioma; ventanas cortas (15 s, salvo el par
+heredado de 65 s); el par heredado `voz_65s` sigue dominado por silencio
+(20 % voz) y su ruido se fabricó re-mezclando en vez de usar la mezcla
+nativa. Ampliar idioma y duración queda como trabajo futuro.
 
 ## 5. Historial
 
@@ -87,6 +92,28 @@ ver §3); sonoridad estable en LUFS salvo −4,2 en el par 3 s (ruido eliminado
 pesa en la sonoridad); RTF incluye la carga del modelo en el primer clip.
 DNSMOS confirma BAK casi al techo y SIG restaurado. Tolerancias DNSMOS
 (OVR ±0,1, SIG/BAK ±0,15) fijadas con desvío 0,000000 en 5 corridas.
+
+## 6. Set ampliado a 8 clips (2026-10-03)
+
+Seis pares nuevos de 15 s (pub/car/office/train/restaurant a SNR 0/5,
+>=40 % voz activa, mezclas nativas del EvalSet). Ganancias SI-SDR de
++8,9 a +13,6 dB con STOI acompañando (0,82–0,98) y DNSMOS BAK ~4:
+
+| Clip | SI-SDR | p5 | STOI | PESQ | SIG/BAK/OVR |
+|---|---|---|---|---|---|
+| pub_snr0 | +10,68 | +5,4 | 0,912 | 2,089 | 3,11 / 4,10 / 2,89 |
+| car_snr0 | +13,62 | −3,0 | 0,955 | 2,472 | 3,42 / 3,94 / 3,10 |
+| car_snr5 | +10,41 | −2,3 | 0,944 | 2,254 | 3,38 / 4,12 / 3,15 |
+| office_snr0 | +11,13 | −23,0 | 0,914 | 2,201 | 2,93 / 3,87 / 2,66 |
+| train_snr5 | +12,35 | +12,0 | 0,983 | 2,838 | 3,42 / 4,11 / 3,16 |
+| restaurant_snr0 | +8,88 | −15,1 | 0,822 | 1,751 | 2,82 / 4,09 / 2,62 |
+
+Lectura: el p5 encuentra debilidad real en pasajes silenciosos, en ambas
+direcciones — fuga de ruido donde la verdad es tenue (salida más fuerte que
+la limpia: office, restaurant) y sobre-supresión (salida mucho más baja:
+auto). Son los peores segundos audibles, no artefactos de medición, y es
+exactamente la clase de defecto que la media escondía. La puerta (tolerancia
+1 dB sobre cambios, con DSP determinista) los vigila sin falsos positivos.
 
 Añadir una fila por cada cambio que toque el DSP, con el comando del §1
 re-ejecutado. Si la fila nueva empeora alguna métrica respecto a

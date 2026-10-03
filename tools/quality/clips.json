@@ -1,7 +1,7 @@
 {
   "sets": {
     "tests_data": {
-      "description": "Pares congelados en tests/data: voz real del EvalSet DPDFNet (Ceva-IP, Apache 2.0). Base minima; ampliar con clips.json externo para conclusiones generales.",
+      "description": "Pares congelados en tests/data: voz real espanola del EvalSet DPDFNet (Ceva-IP, Apache 2.0). Ventanas de maxima actividad (>=40% voz) cortadas de clips largos y remuestreadas a 48kHz.",
       "clips": [
         {
           "name": "voz_3s",
@@ -14,6 +14,42 @@
           "clean": "tests/data/voz65s_clean.wav",
           "noisy": "tests/data/voz65s_noisy.wav",
           "output_name": "voz_65s_out.wav"
+        },
+        {
+          "name": "pub_snr0",
+          "clean": "tests/data/pub_snr0_clean.wav",
+          "noisy": "tests/data/pub_snr0_noisy.wav",
+          "output_name": "pub_snr0_out.wav"
+        },
+        {
+          "name": "car_snr0",
+          "clean": "tests/data/car_snr0_clean.wav",
+          "noisy": "tests/data/car_snr0_noisy.wav",
+          "output_name": "car_snr0_out.wav"
+        },
+        {
+          "name": "car_snr5",
+          "clean": "tests/data/car_snr5_clean.wav",
+          "noisy": "tests/data/car_snr5_noisy.wav",
+          "output_name": "car_snr5_out.wav"
+        },
+        {
+          "name": "office_snr0",
+          "clean": "tests/data/office_snr0_clean.wav",
+          "noisy": "tests/data/office_snr0_noisy.wav",
+          "output_name": "office_snr0_out.wav"
+        },
+        {
+          "name": "train_snr5",
+          "clean": "tests/data/train_snr5_clean.wav",
+          "noisy": "tests/data/train_snr5_noisy.wav",
+          "output_name": "train_snr5_out.wav"
+        },
+        {
+          "name": "restaurant_snr0",
+          "clean": "tests/data/restaurant_snr0_clean.wav",
+          "noisy": "tests/data/restaurant_snr0_noisy.wav",
+          "output_name": "restaurant_snr0_out.wav"
         }
       ]
     }

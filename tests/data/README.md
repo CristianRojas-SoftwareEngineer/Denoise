@@ -29,6 +29,11 @@ actual. Paridad verificada contra sherpa-onnx (1 LSB PCM16).
 - `voz65s_clean.wav` - voz real 65s, SR 48k, mono PCM16
 - `voz65s_noisy.wav` - `voz65s_clean.wav` + ruido a SNR 10 dB
 - `referencia65s_dpdfnet.wav` - salida de DPDFNet sobre `voz65s_noisy.wav`, congelada
+- `<escena>_snr<N>_clean.wav` / `<escena>_snr<N>_noisy.wav` - ventanas de 15s
+  con >=40% de voz activa, cortadas de clips largos del EvalSet
+  (`pub`/`car`/`office`/`train`/`restaurant` a SNR 0/5 dB) y remuestreadas de
+  16kHz a 48kHz. Solo para el benchmark (sin referencia congelada: la salida
+  la genera `run` en cada corrida).
 
 > **Nota:** Estos archivos son deterministas y se mantienen congelados. Si se requiere regenerarlos manualmente, usar `cargo run --release --example gen_vectors -- <dir_eval>`.
 
