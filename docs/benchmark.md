@@ -73,6 +73,20 @@ ajustarse a la medición en vez de a la calidad. El paso pendiente es ampliarlo
 | Fecha | Cambio | SI-SDR 3 s | STOI 3 s | PESQ 3 s | SI-SDR 65 s | Notas |
 |---|---|---|---|---|---|---|
 | 2026-10-03 | Línea base DPDFNet | +6,68 | 0,838 | 1,196 | +2,67 | Primera medición con las tres métricas |
+| 2026-10-03 | Batería ampliada (p5, LUFS, RTF, DNSMOS) | +6,68 | 0,838 | 1,196 | +2,67 | Mismo DSP; la puerta ahora cubre 9 métricas. Detalle abajo |
+
+Batería ampliada (mismo DSP, mismos clips):
+
+| Clip | p5 | LUFS Δ | RTF | DNSMOS SIG/BAK/OVR |
+|---|---|---|---|---|
+| 3 s | +3,8 | −4,2 | 1,09 | 3,33 / 3,94 / 3,03 |
+| 65 s | +11,6 | +0,7 | 1,40 | 3,11 / 3,88 / 2,71 |
+
+Lectura: sin daño localizado real (el p5 bajo inicial era silencio digital,
+ver §3); sonoridad estable en LUFS salvo −4,2 en el par 3 s (ruido eliminado
+pesa en la sonoridad); RTF incluye la carga del modelo en el primer clip.
+DNSMOS confirma BAK casi al techo y SIG restaurado. Tolerancias DNSMOS
+(OVR ±0,1, SIG/BAK ±0,15) fijadas con desvío 0,000000 en 5 corridas.
 
 Añadir una fila por cada cambio que toque el DSP, con el comando del §1
 re-ejecutado. Si la fila nueva empeora alguna métrica respecto a

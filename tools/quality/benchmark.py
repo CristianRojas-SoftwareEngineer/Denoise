@@ -39,14 +39,26 @@ TOLERANCES = {
     "pesq_out": 0.05,
     "lufs_delta_band": 1.5,
     "rtf_ratio": 2.0,
+    "dnsmos_ovr_out": 0.1,
+    "dnsmos_sig_out": 0.15,
+    "dnsmos_bak_out": 0.15,
 }
 
 # Métricas que hacen fallar la puerta (caída bajo tolerancia).
-GATED_LOWER = ("si_sdr_gain", "si_sdr_p5", "stoi_out", "pesq_out")
+# Las tolerancias DNSMOS vienen del protocolo de varianza de Fase 2
+# (desvío 0.000000 en 5 corridas): cubren diferencias de entorno, no ruido.
+GATED_LOWER = (
+    "si_sdr_gain",
+    "si_sdr_p5",
+    "stoi_out",
+    "pesq_out",
+    "dnsmos_sig_out",
+    "dnsmos_bak_out",
+    "dnsmos_ovr_out",
+)
 
-# Métricas que se reportan pero no fallan. Su promoción a la puerta se decide
-# con el dato de varianza entre corridas (Fase 2), no a ojo (Fase 3).
-INFORMATIVAS = ("dnsmos_sig_out", "dnsmos_bak_out", "dnsmos_ovr_out")
+# Métricas que se reportan pero no fallan (reservado para futuras candidatas).
+INFORMATIVAS: tuple = ()
 
 
 # ------------------------------------------------------------------- entradas

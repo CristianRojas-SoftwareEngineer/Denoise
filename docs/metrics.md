@@ -8,10 +8,11 @@
 ## Índice
 
 1. [Qué hace la herramienta](#1-qué-hace-la-herramienta)
-2. [Las tres métricas](#2-las-tres-métricas)
+2. [Las métricas principales](#2-las-métricas-principales)
    - [2.1. SI-SDR: ¿cuánto ruido se fue?](#21-si-sdr-cuánto-ruido-se-fue)
    - [2.2. STOI: ¿se entiende lo que dice?](#22-stoi-se-entiende-lo-que-dice)
    - [2.3. PESQ: ¿suena natural o suena a robot?](#23-pesq-suena-natural-o-suena-a-robot)
+   - [2.4. DNSMOS: la nota de un humano](#24-dnsmos-la-nota-de-un-humano)
 3. [Cómo leerlas juntas](#3-cómo-leerlas-juntas)
 4. [Las columnas extra](#4-las-columnas-extra)
 5. [Lo que las métricas no dicen](#5-lo-que-las-métricas-no-dicen)
@@ -22,9 +23,9 @@
 Recibe un video con voz + ruido de fondo (metro, calle, ventilador) y devuelve
 el video con la voz más limpia. La pregunta que nos hacemos es doble: **¿cuánto
 más limpia quedó, y a qué costo?** Ninguna métrica sola responde ambas cosas,
-por eso usamos tres.
+por eso usamos varias.
 
-## 2. Las tres métricas
+## 2. Las métricas principales
 
 ### 2.1. SI-SDR: ¿cuánto ruido se fue?
 
@@ -70,6 +71,21 @@ reductores de ruido: quitar el ruido pero dejar la voz con timbre
 metálico o aguado. Técnicamente se evalúa remuestreando a 16 kHz, porque la
 norma solo admite 8 o 16 kHz; eso no cambia lo que mide.
 
+### 2.4. DNSMOS: la nota de un humano
+
+Un modelo entrenado con miles de calificaciones de personas reales, que
+predice qué nota le pondrían a tu audio. Da tres notas de 1 a 5, y es la
+única métrica que **no necesita la grabación limpia**: sirve para puntuar
+cualquier video real.
+
+- **SIG** = calidad de la voz (¿suena bien quien habla?).
+- **BAK** = calidad del fondo (¿se fue el ruido? mientras más alto, más silencio).
+- **OVR** = nota global (lo que un humano diría en general).
+
+Su gracia frente a las otras: separa el veredicto en dos. Si BAK es alto pero
+SIG es bajo, el ruido se fue pero la voz quedó dañada — el modelo fue
+demasiado agresivo. Ninguna métrica con referencia te dice eso tan directo.
+
 ## 3. Cómo leerlas juntas
 
 | Lo que ves | Lo que significa |
@@ -77,6 +93,7 @@ norma solo admite 8 o 16 kHz; eso no cambia lo que mide.
 | SI-SDR sube **y** STOI/PESQ suben | Todo bien: menos ruido, voz intacta |
 | SI-SDR sube pero STOI/PESQ **no se mueven** | El modelo está borrando de más: quita ruido pero deforma la voz |
 | PESQ bajo aunque SI-SDR sea alto | Suena a robot. Hay que suavizar el procesado, no quitar más ruido |
+| BAK alto pero SIG bajo | El ruido se fue pero la voz quedó dañada: el modelo es agresivo |
 
 La segunda fila es la razón de ser de este documento: durante un tiempo solo
 se medía SI-SDR, y un modelo que sobre-suprime mejora SI-SDR mientras empeora
@@ -84,10 +101,18 @@ la voz. Sin STOI y PESQ esa regresión es invisible.
 
 ## 4. Las columnas extra
 
-Además de las tres métricas, el reporte incluye:
+Además de las métricas principales, el reporte incluye:
 
+- **Peor segundo (p5)**: el SI-SDR del peor tramo de 1 segundo con voz
+  audible. La media puede estar bien y esconder 2 segundos rotos; el p5 los
+  delata. Si cae más de 3 dB bajo la media, la herramienta lo marca como aviso.
 - **Nivel (dB)**: cuánto cambió el volumen de salida respecto a la entrada.
   ±2 dB es apenas perceptible; más de ±6 dB la herramienta lo marca como aviso.
+- **LUFS**: lo mismo que el nivel pero en la unidad que percibe el oído
+  (la que usan la televisión y la radio), no en picos. Si la salida conserva
+  el volumen percibido, este número apenas se mueve.
+- **RTF**: segundos de audio procesados por segundo de pared. Menor que 1 es
+  más rápido que tiempo real. Mide cuánto espera el usuario, no la calidad.
 - **Retardo (muestras)**: desfase de la salida respecto a la voz real. Si no
   es cero, el audio queda desincronizado con el video, algo que se percibe
   aunque la voz suene bien.
@@ -97,14 +122,15 @@ Además de las tres métricas, el reporte incluye:
 
 ## 5. Lo que las métricas no dicen
 
-Ninguna de las tres reemplaza escuchar el resultado. Miden ruido, inteligibilidad
-y naturalidad sobre grabaciones con referencia limpia conocida; no detectan
-artefactos raros (ecos, cortes, voz que aparece y desaparece) tan bien como un
-oído. Ante una duda entre el número y el oído, manda el oído.
+Ninguna de ellas reemplaza escuchar el resultado. Miden ruido, inteligibilidad
+y naturalidad sobre grabaciones con referencia limpia conocida (salvo DNSMOS,
+que no la necesita); no detectan artefactos raros (ecos, cortes, voz que
+aparece y desaparece) tan bien como un oído. Ante una duda entre el número y
+el oído, manda el oído.
 
 ## 6. Dónde se calculan
 
-- `tools/quality/metrics.py`: implementación de las tres métricas.
+- `tools/quality/metrics.py`: implementación de todas las métricas.
 - `tools/quality/benchmark.py`: ejecuta el DSP sobre un set de clips y genera
   el reporte con la tabla.
 - `tools/quality/baseline.json`: línea base comprometida; el benchmark falla
