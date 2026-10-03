@@ -13,6 +13,7 @@
 4. [Limitaciones del set actual](#4-limitaciones-del-set-actual)
 5. [Historial](#5-historial)
 6. [Set ampliado a 8 clips (2026-10-03)](#6-set-ampliado-a-8-clips-2026-10-03)
+7. [Cómo iterar](#7-cómo-iterar)
 
 ## 1. Método
 
@@ -118,3 +119,41 @@ exactamente la clase de defecto que la media escondía. La puerta (tolerancia
 Añadir una fila por cada cambio que toque el DSP, con el comando del §1
 re-ejecutado. Si la fila nueva empeora alguna métrica respecto a
 `baseline.json`, el propio benchmark lo marca antes de commitear.
+
+## 7. Cómo iterar
+
+El loop de mejora es: hipótesis → un cambio → medir → decidir → registrar.
+
+**1. Hipótesis.** Cada iteración responde una pregunta concreta que dice qué
+métrica debe moverse:
+
+| Si trabajas en… | Tu dial es… | El resto debe… |
+|---|---|---|
+| eliminar más ruido | SI-SDR, BAK | no moverse |
+| naturalidad de la voz | PESQ, SIG | no moverse |
+| volumen consistente | LUFS | no moverse |
+| velocidad | RTF | no moverse |
+
+**2. Un cambio.** Uno por iteración en el DSP. Con dos cambios no se puede
+atribuir el resultado; con uno, el veredicto es inequívoco.
+
+**3. Medir.** Benchmark para calidad + suite Rust para integración; la
+iteración no está evaluada hasta que pasan ambas:
+
+```bash
+python tools/quality/benchmark.py run --set tests_data --work out/bench
+cargo test --release
+```
+
+**4. Decidir.** Puerta en verde + tu dial subió = mejora real (congélala con
+`--update-baseline`). Puerta en rojo = regresión: no toques la baseline,
+diagnostica con la métrica y el clip que el reporte indica (el p5 dice en qué
+segundo mirar; ante la duda manda el oído). Todo igual = hipótesis falsa,
+se revierte sin costo.
+
+**5. Registrar.** Cada cambio deja tres rastros: `baseline.json` actualizada
+(solo si la mejora fue deliberada y verificada), fila en §5/§6 y commit.
+
+**Regla de oro.** La baseline nunca se mueve para que un resultado pase;
+solo para ratificar una mejora que ya pasó. Es manual y deliberada por
+diseño: es la única forma de romper este sistema.
