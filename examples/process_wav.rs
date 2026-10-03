@@ -11,12 +11,30 @@
 //!
 //! `<pares.txt>` tiene una línea por clip, `entrada<TAB>salida`. Se leen todos
 //! los clips en un mismo proceso para amortizar la carga del modelo ONNX.
+//!
+//! Por cada clip exitoso emite a stdout `RTF<TAB>salida<TAB>valor` (segundos de
+//! audio por segundo de pared; <1 es más rápido que tiempo real) para que
+//! `tools/quality/benchmark.py` lo registre. El progreso humano va a stderr.
+//!
+//! Nota: el modelo ONNX se carga una sola vez por proceso, así que el RTF del
+//! primer clip incluye la carga y sale más alto; los siguientes miden DSP puro.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Instant;
 
 use denoise::df::denoise_wav_with_provider;
 use denoise::models::{default_model_dir, DefaultModelsProvider};
+
+/// Duración en segundos de un WAV (para RTF). `None` si no se puede leer.
+fn wav_seconds(path: &PathBuf) -> Option<f64> {
+    let r = hound::WavReader::open(path).ok()?;
+    let spec = r.spec();
+    if spec.sample_rate == 0 {
+        return None;
+    }
+    Some(r.len() as f64 / spec.sample_rate as f64)
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -62,11 +80,18 @@ fn main() -> ExitCode {
         }
 
         eprint!("[{}] {}", entrada.display(), entrada.display());
+        let t0 = Instant::now();
         match denoise_wav_with_provider(&entrada, &salida, &model_dir, &provider, &|cur, tot| {
             eprint!("\r[{}] {cur:.1}/{tot:.1}s", entrada.display());
         }) {
             Ok(()) => {
                 eprintln!("\r[{}] ok -> {}", entrada.display(), salida.display());
+                // Línea máquina a stdout para benchmark.py; el progreso va a stderr.
+                let secs = t0.elapsed().as_secs_f64().max(1e-6);
+                match wav_seconds(&salida) {
+                    Some(dur) => println!("RTF\t{}\t{:.4}", salida.display(), dur / secs),
+                    None => println!("RTF\t{}\tnan", salida.display()),
+                }
                 hechos += 1;
             }
             Err(e) => {

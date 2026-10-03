@@ -34,8 +34,11 @@ import metrics  # noqa: E402
 
 TOLERANCES = {
     "si_sdr_gain": 0.5,
+    "si_sdr_p5": 1.0,
     "stoi_out": 0.02,
     "pesq_out": 0.05,
+    "lufs_delta_band": 1.5,
+    "rtf_ratio": 2.0,
 }
 
 
@@ -99,7 +102,9 @@ def fmt(v, nd=2):
     return f"{v:.{nd}f}"
 
 
-def score_all(clips: list[dict], outputs: Path) -> list[metrics.ClipScore]:
+def score_all(
+    clips: list[dict], outputs: Path, rtf_by_name: dict | None = None
+) -> list[metrics.ClipScore]:
     scores = []
     for c in clips:
         clean, sr_c = read_wav(c["clean"])
@@ -112,14 +117,28 @@ def score_all(clips: list[dict], outputs: Path) -> list[metrics.ClipScore]:
             raise SystemExit(
                 f"{c['name']}: tasas distintas clean={sr_c} noisy={sr_n} out={sr_o}"
             )
-        scores.append(metrics.score_clip(c["name"], sr_c, clean, noisy, out))
+        rtf = (rtf_by_name or {}).get(c["output_name"])
+        scores.append(metrics.score_clip(c["name"], sr_c, clean, noisy, out, rtf=rtf))
     return scores
+
+
+def parse_rtf(stdout: str) -> dict:
+    """Extrae `RTF<TAB>salida<TAB>valor` del harness, claveado por nombre de fichero."""
+    out = {}
+    for line in stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0] == "RTF":
+            try:
+                out[Path(parts[1]).name] = float(parts[2])
+            except ValueError:
+                pass
+    return out
 
 
 def print_table(scores: list[metrics.ClipScore]) -> None:
     head = (
-        f"{'clip':<12} {'in->out SI-SDR':>17} {'ganancia':>9} "
-        f"{'STOI':>13} {'PESQ':>13} {'nivel':>8} {'voz%':>6}  avisos"
+        f"{'clip':<12} {'in->out SI-SDR':>17} {'ganancia':>9} {'p5':>7} "
+        f"{'STOI':>13} {'PESQ':>13} {'nivel':>8} {'LUFS':>7} {'RTF':>6} {'voz%':>6}  avisos"
     )
     print(head)
     print("-" * len(head))
@@ -129,12 +148,16 @@ def print_table(scores: list[metrics.ClipScore]) -> None:
         pq = f"{fmt(s.pesq_in,3)}->{fmt(s.pesq_out,3)}"
         warn = "; ".join(s.warnings)
         print(
-            f"{s.name:<12} {si:>17} {s.si_sdr_gain:>+8.2f} "
-            f"{st:>13} {pq:>13} {s.level_delta:>+7.1f} {s.active_fraction*100:>5.0f}%  {warn}"
+            f"{s.name:<12} {si:>17} {s.si_sdr_gain:>+8.2f} {fmt(s.si_sdr_p5,1):>7} "
+            f"{st:>13} {pq:>13} {s.level_delta:>+7.1f} {fmt(s.lufs_delta,1):>7} "
+            f"{fmt(s.rtf,2):>6} {s.active_fraction*100:>5.0f}%  {warn}"
         )
     print()
     print("SI-SDR: cuanto ruido se quito (ganancia = salida - entrada).")
+    print("p5: peor segundo audible; si cae muy bajo hay daño localizado.")
     print("STOI/PESQ: cuanta voz quedo integra (penalizan la deformacion).")
+    print("LUFS: cambio de sonoridad percibida. RTF: segundos de audio por")
+    print("segundo de pared (<1 es mas rapido que tiempo real).")
     print("Si SI-SDR mejora pero STOI/PESQ no, el modelo sobre-suprime.")
 
 
@@ -158,10 +181,32 @@ def check_baseline(
             failures.append(
                 f"{s.name}: SI-SDR +{s.si_sdr_gain:.2f} < base +{b['si_sdr_gain']:.2f}"
             )
+        if s.si_sdr_p5 < b.get("si_sdr_p5", s.si_sdr_p5) - TOLERANCES["si_sdr_p5"]:
+            failures.append(
+                f"{s.name}: p5 {s.si_sdr_p5:.2f} < base {b.get('si_sdr_p5'):.2f}"
+            )
         for key, tol in (("stoi_out", TOLERANCES["stoi_out"]), ("pesq_out", TOLERANCES["pesq_out"])):
             cur, prev = getattr(s, key), b.get(key)
             if cur is not None and prev is not None and cur < prev - tol:
                 failures.append(f"{s.name}: {key} {cur:.3f} < base {prev:.3f}")
+        cur_lu, prev_lu = s.lufs_delta, b.get("lufs_delta")
+        if (
+            cur_lu is not None
+            and prev_lu is not None
+            and abs(cur_lu - prev_lu) > TOLERANCES["lufs_delta_band"]
+        ):
+            failures.append(
+                f"{s.name}: LUFS {cur_lu:+.2f} fuera de banda (base {prev_lu:+.2f})"
+            )
+        cur_rtf, prev_rtf = s.rtf, b.get("rtf")
+        if (
+            cur_rtf is not None
+            and prev_rtf
+            and cur_rtf > prev_rtf * TOLERANCES["rtf_ratio"]
+        ):
+            failures.append(
+                f"{s.name}: RTF {cur_rtf:.2f} > 2x base {prev_rtf:.2f}"
+            )
     return failures
 
 
@@ -190,16 +235,16 @@ def cmd_run(args) -> int:
     ]
     if args.model_dir:
         cmd.append(str(args.model_dir))
-    r = subprocess.run(cmd, cwd=str(args.root))
+    r = subprocess.run(cmd, cwd=str(args.root), stdout=subprocess.PIPE, text=True)
     if r.returncode != 0:
         return r.returncode
 
-    return cmd_score(args)
+    return cmd_score(args, rtf_by_name=parse_rtf(r.stdout))
 
 
-def cmd_score(args) -> int:
+def cmd_score(args, rtf_by_name: dict | None = None) -> int:
     clips = clips_of(read_manifest(), args.set, args.root)
-    scores = score_all(clips, Path(args.outputs))
+    scores = score_all(clips, Path(args.outputs), rtf_by_name)
 
     print_table(scores)
 

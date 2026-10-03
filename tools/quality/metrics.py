@@ -63,6 +63,67 @@ def si_sdr(ref: np.ndarray, est: np.ndarray, eps: float = 1e-8) -> float:
     return 10.0 * math.log10(numerator / denominator)
 
 
+# ------------------------------------------- SI-SDR por ventanas (peor caso)
+
+
+def si_sdr_windowed(
+    ref: np.ndarray,
+    est: np.ndarray,
+    sr: int,
+    win_s: float = 1.0,
+    eps: float = 1e-8,
+    floor_drop_db: float = 50.0,
+) -> np.ndarray:
+    """Un SI-SDR por ventana de `win_s` segundos.
+
+    Las medias globales esconden daño localizado (2 s rotos en 60 s buenos
+    apenas mueven el promedio). Se excluyen (`nan`) dos clases de ventana:
+    referencia casi nula (`eps`) y referencia más de `floor_drop_db` por
+    debajo del pico del clip — contenido 50 dB bajo el pico es inaudible en
+    cualquier condición real, y puntuarlo contaminaría el percentil con el
+    fixture en vez de con el daño. Misma convención que `si_sdr` en el resto
+    (100.0 paridad, -inf daño total).
+    """
+    win = max(1, int(sr * win_s))
+    n = min(len(ref), len(est)) // win
+    vals = np.full(n, np.nan)
+    if n == 0:
+        return vals
+
+    r = np.asarray(ref[: n * win], dtype=np.float64).reshape(n, win)
+    e = np.asarray(est[: n * win], dtype=np.float64).reshape(n, win)
+    r = r - r.mean(axis=1, keepdims=True)
+    e = e - e.mean(axis=1, keepdims=True)
+
+    nr = np.einsum("ij,ij->i", r, r)
+    ne = np.einsum("ij,ij->i", e, e)
+    rms_db = 10.0 * np.log10(np.maximum(nr / win, 1e-20))
+    valid = (nr >= eps) & (ne >= eps) & (rms_db >= rms_db.max() - floor_drop_db)
+    if not valid.any():
+        return vals
+
+    d = np.einsum("ij,ij->i", r[valid], e[valid])
+    num = d**2 / nr[valid]
+    den = ne[valid] - num
+
+    v = np.full(int(valid.sum()), np.nan)
+    v[den <= eps] = 100.0
+    good = (den > eps) & (num > eps)
+    v[good] = 10.0 * np.log10(num[good] / den[good])
+    v[(den > eps) & (num <= eps)] = -np.inf
+    vals[valid] = v
+    return vals
+
+
+def si_sdr_p5(ref: np.ndarray, est: np.ndarray, sr: int, win_s: float = 1.0) -> float:
+    """Percentil 5 del SI-SDR por ventanas: cómo suena el peor tramo."""
+    vals = si_sdr_windowed(ref, est, sr, win_s)
+    vals = vals[~np.isnan(vals)]
+    if len(vals) == 0:
+        return -math.inf
+    return float(np.percentile(vals, 5))
+
+
 # ------------------------------------------------------- actividad de voz
 
 
@@ -184,6 +245,60 @@ def lag_samples(ref: np.ndarray, est: np.ndarray) -> int:
     return int(np.argmax(cc) - (n - 1))
 
 
+# -------------------------------------------------- sonoridad (LUFS)
+
+
+# Coeficientes del K-weighting BS.1770-4 a 48 kHz (tablas de la norma).
+# Etapa 1: pre-filtro high-shelf. Etapa 2: pasa-altos RLB.
+_K_PRE_B = (1.53512485958697, -2.69169618940638, 1.19839281085285)
+_K_PRE_A = (1.0, -1.69065929318241, 0.73248077421585)
+_K_RLB_B = (1.0, -2.0, 1.0)
+_K_RLB_A = (1.0, -1.99004745483398, 0.99007225036621)
+
+
+def lufs_integrated(x: np.ndarray, sr: int) -> float | None:
+    """Sonoridad integrada en LUFS (ITU-R BS.1770, mono).
+
+    El pico (dBFS) no dice cómo de fuerte se percibe; LUFS sí: pondera por
+    frecuencia (K-weighting) y promedia solo los bloques con contenido
+    (gating absoluto −70 LUFS y relativo −10 LU). Devuelve `None` sin scipy.
+    """
+    try:
+        from scipy.signal import lfilter as _lf
+    except ImportError:
+        return None
+
+    x = np.asarray(x, dtype=np.float64)
+    if sr != 48000:
+        x = _resample(x, sr, 48000)
+        sr = 48000
+    if len(x) == 0 or not np.any(x):
+        return -math.inf
+
+    y = _lf(_K_PRE_B, _K_PRE_A, x)
+    y = _lf(_K_RLB_B, _K_RLB_A, y)
+
+    blk = int(sr * 0.400)
+    hop = blk // 4
+    if len(y) < blk:
+        ms = np.array([float(np.mean(y**2))])
+    else:
+        n = 1 + (len(y) - blk) // hop
+        ms = np.array([float(np.mean(y[i * hop : i * hop + blk] ** 2)) for i in range(n)])
+
+    def to_lufs(m: float) -> float:
+        return -0.691 + 10.0 * math.log10(max(m, 1e-20))
+
+    keep = np.array([to_lufs(m) >= -70.0 for m in ms])
+    if not keep.any():
+        return -math.inf
+    rel = to_lufs(float(ms[keep].mean())) - 10.0
+    gated = ms[[k and to_lufs(m) >= rel for k, m in zip(keep, ms)]]
+    if len(gated) == 0:
+        return -math.inf
+    return to_lufs(float(gated.mean()))
+
+
 # ------------------------------------------------------------- reporte
 
 
@@ -196,6 +311,7 @@ class ClipScore:
     si_sdr_out: float
     si_sdr_gain: float
     si_sdr_gain_speech: float
+    si_sdr_p5: float
     stoi_in: float | None
     stoi_out: float | None
     pesq_in: float | None
@@ -203,6 +319,10 @@ class ClipScore:
     level_in: float
     level_out: float
     level_delta: float
+    lufs_in: float | None
+    lufs_out: float | None
+    lufs_delta: float | None
+    rtf: float | None
     lag: int
     active_fraction: float
     warnings: list[str] = field(default_factory=list)
@@ -214,7 +334,14 @@ class ClipScore:
         }
 
 
-def score_clip(name: str, sr: int, clean: np.ndarray, noisy: np.ndarray, out: np.ndarray) -> ClipScore:
+def score_clip(
+    name: str,
+    sr: int,
+    clean: np.ndarray,
+    noisy: np.ndarray,
+    out: np.ndarray,
+    rtf: float | None = None,
+) -> ClipScore:
     """Calcula todas las métricas para un triplete (limpio, entrada, salida)."""
     n = min(len(clean), len(noisy), len(out))
     clean, noisy, out = clean[:n], noisy[:n], out[:n]
@@ -223,7 +350,10 @@ def score_clip(name: str, sr: int, clean: np.ndarray, noisy: np.ndarray, out: np
     speech = si_sdr_speech_only(clean, out, sr)
     if math.isinf(speech):
         speech = s_out - s_in
+    p5 = si_sdr_p5(clean, out, sr)
     lvl_in, lvl_out = level_p999(noisy), level_p999(out)
+    li, lo = lufs_integrated(noisy, sr), lufs_integrated(out, sr)
+    lufs_delta = (lo - li) if li is not None and lo is not None else None
     n_frames = len(clean) // max(1, int(sr * 0.030))
     frac = float(speech_mask(clean, sr).mean()) if n_frames else 0.0
 
@@ -237,6 +367,8 @@ def score_clip(name: str, sr: int, clean: np.ndarray, noisy: np.ndarray, out: np
         warnings.append(f"solo {frac * 100:.0f} % de voz activa: métrica poco representativa")
     if s_out < s_in:
         warnings.append("la salida empeora el SI-SDR global")
+    if not math.isinf(p5) and p5 < s_out - 3.0:
+        warnings.append(f"daño localizado: peor segundo {p5:.1f} dB vs media {s_out:.1f} dB")
 
     return ClipScore(
         name=name,
@@ -246,6 +378,7 @@ def score_clip(name: str, sr: int, clean: np.ndarray, noisy: np.ndarray, out: np
         si_sdr_out=round(s_out, 2),
         si_sdr_gain=round(s_out - s_in, 2),
         si_sdr_gain_speech=round(speech, 2),
+        si_sdr_p5=round(p5, 2) if not math.isinf(p5) else p5,
         stoi_in=stoi_score(clean, noisy, sr),
         stoi_out=stoi_score(clean, out, sr),
         pesq_in=pesq_score(clean, noisy, sr),
@@ -253,6 +386,10 @@ def score_clip(name: str, sr: int, clean: np.ndarray, noisy: np.ndarray, out: np
         level_in=round(lvl_in, 2),
         level_out=round(lvl_out, 2),
         level_delta=round(lvl_out - lvl_in, 2),
+        lufs_in=round(li, 2) if li is not None else None,
+        lufs_out=round(lo, 2) if lo is not None else None,
+        lufs_delta=round(lufs_delta, 2) if lufs_delta is not None else None,
+        rtf=rtf,
         lag=lag,
         active_fraction=round(frac, 3),
         warnings=warnings,
