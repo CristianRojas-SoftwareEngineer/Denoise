@@ -15,6 +15,7 @@ ninguna puerta anterior lo detectaba. Las tres métricas juntas lo cubren:
 | SI-SDR | cuánto ruido se eliminó | reducción de ruido |
 | STOI | cuánta voz quedó inteligible | aislación de voz |
 | PESQ MOS-LQO | calidad perceptual global | distorsión + ruido residual |
+| DNSMOS SIG/BAK/OVR | voz / fondo / global sin referencia | las tres, sobre videos reales |
 
 Regla de lectura: si SI-SDR mejora pero STOI/PESQ no, el modelo está
 sobre-suprimiendo. Eso es una regresión aunque el SI-SDR suba.
@@ -93,5 +94,9 @@ el par de 65 s dominado por silencio (>80 %). Ampliarlo es el paso pendiente.
   docstring la liste en otro orden.
 - SI-SDR restringido a voz (`si_sdr_gain_speech`, en el JSON del reporte)
   evita que el silencio domine la métrica.
+- DNSMOS usa el modelo oficial de Microsoft (`sig_bak_ovr.onnx` P.808 y P.835
+  vía `torchmetrics`): primera ejecución lo descarga (~2,4 MB) a
+  `~/.torchmetrics/DNSMOS`, después funciona offline. Sin el modelo devuelve
+  `n/a` en vez de fallar, igual que STOI/PESQ sin su paquete.
 - Nunca uses un nombre de archivo que sombree un módulo stdlib (`struct.py`,
   `wave.py`, …): rompe cualquier script Python que corra en ese directorio.

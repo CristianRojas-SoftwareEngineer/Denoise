@@ -41,6 +41,13 @@ TOLERANCES = {
     "rtf_ratio": 2.0,
 }
 
+# Métricas que hacen fallar la puerta (caída bajo tolerancia).
+GATED_LOWER = ("si_sdr_gain", "si_sdr_p5", "stoi_out", "pesq_out")
+
+# Métricas que se reportan pero no fallan. Su promoción a la puerta se decide
+# con el dato de varianza entre corridas (Fase 2), no a ojo (Fase 3).
+INFORMATIVAS = ("dnsmos_sig_out", "dnsmos_bak_out", "dnsmos_ovr_out")
+
 
 # ------------------------------------------------------------------- entradas
 
@@ -138,7 +145,8 @@ def parse_rtf(stdout: str) -> dict:
 def print_table(scores: list[metrics.ClipScore]) -> None:
     head = (
         f"{'clip':<12} {'in->out SI-SDR':>17} {'ganancia':>9} {'p5':>7} "
-        f"{'STOI':>13} {'PESQ':>13} {'nivel':>8} {'LUFS':>7} {'RTF':>6} {'voz%':>6}  avisos"
+        f"{'STOI':>13} {'PESQ':>13} {'SIG/BAK/OVR':>17} "
+        f"{'nivel':>8} {'LUFS':>7} {'RTF':>6} {'voz%':>6}  avisos"
     )
     print(head)
     print("-" * len(head))
@@ -146,16 +154,19 @@ def print_table(scores: list[metrics.ClipScore]) -> None:
         si = f"{s.si_sdr_in:+.1f}->{s.si_sdr_out:+.1f}"
         st = f"{fmt(s.stoi_in,3)}->{fmt(s.stoi_out,3)}"
         pq = f"{fmt(s.pesq_in,3)}->{fmt(s.pesq_out,3)}"
+        dn = f"{fmt(s.dnsmos_sig_out,2)}/{fmt(s.dnsmos_bak_out,2)}/{fmt(s.dnsmos_ovr_out,2)}"
         warn = "; ".join(s.warnings)
         print(
             f"{s.name:<12} {si:>17} {s.si_sdr_gain:>+8.2f} {fmt(s.si_sdr_p5,1):>7} "
-            f"{st:>13} {pq:>13} {s.level_delta:>+7.1f} {fmt(s.lufs_delta,1):>7} "
+            f"{st:>13} {pq:>13} {dn:>17} "
+            f"{s.level_delta:>+7.1f} {fmt(s.lufs_delta,1):>7} "
             f"{fmt(s.rtf,2):>6} {s.active_fraction*100:>5.0f}%  {warn}"
         )
     print()
     print("SI-SDR: cuanto ruido se quito (ganancia = salida - entrada).")
     print("p5: peor segundo audible; si cae muy bajo hay daño localizado.")
     print("STOI/PESQ: cuanta voz quedo integra (penalizan la deformacion).")
+    print("SIG/BAK/OVR (DNSMOS, sin referencia): voz / fondo / global.")
     print("LUFS: cambio de sonoridad percibida. RTF: segundos de audio por")
     print("segundo de pared (<1 es mas rapido que tiempo real).")
     print("Si SI-SDR mejora pero STOI/PESQ no, el modelo sobre-suprime.")
@@ -177,17 +188,11 @@ def check_baseline(
         if b is None:
             failures.append(f"{s.name}: sin linea base (agregar con --update-baseline)")
             continue
-        if s.si_sdr_gain < b["si_sdr_gain"] - TOLERANCES["si_sdr_gain"]:
-            failures.append(
-                f"{s.name}: SI-SDR +{s.si_sdr_gain:.2f} < base +{b['si_sdr_gain']:.2f}"
-            )
-        if s.si_sdr_p5 < b.get("si_sdr_p5", s.si_sdr_p5) - TOLERANCES["si_sdr_p5"]:
-            failures.append(
-                f"{s.name}: p5 {s.si_sdr_p5:.2f} < base {b.get('si_sdr_p5'):.2f}"
-            )
-        for key, tol in (("stoi_out", TOLERANCES["stoi_out"]), ("pesq_out", TOLERANCES["pesq_out"])):
+        for key in GATED_LOWER:
             cur, prev = getattr(s, key), b.get(key)
-            if cur is not None and prev is not None and cur < prev - tol:
+            if cur is None or prev is None:
+                continue
+            if cur < prev - TOLERANCES[key]:
                 failures.append(f"{s.name}: {key} {cur:.3f} < base {prev:.3f}")
         cur_lu, prev_lu = s.lufs_delta, b.get("lufs_delta")
         if (

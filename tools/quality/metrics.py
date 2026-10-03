@@ -217,6 +217,33 @@ def pesq_score(ref: np.ndarray, est: np.ndarray, sr: int) -> float | None:
         return None
 
 
+# ------------------------------------------------- DNSMOS (sin referencia)
+
+
+def dnsmos_scores(x: np.ndarray, sr: int) -> dict | None:
+    """DNSMOS P.808 + P.835 sin referencia: `{p808, sig, bak, ovr}`.
+
+    La única métrica que no necesita la voz limpia: permite puntuar videos
+    reales sin grabación de referencia. `sig` = calidad de la voz, `bak` =
+    supresión del fondo, `ovr` = global. Vía torchmetrics (descarga el modelo
+    oficial de Microsoft a `~/.torchmetrics/DNSMOS` en el primer uso).
+    Devuelve `None` si no está instalado o falla la descarga.
+    """
+    try:
+        import torch
+        from torchmetrics.functional.audio.dnsmos import (
+            deep_noise_suppression_mean_opinion_score as _dns,
+        )
+    except ImportError:
+        return None
+    try:
+        t = torch.from_numpy(np.asarray(x, dtype=np.float32))
+        v = _dns(t, int(sr), False)
+        return {k: float(v[i]) for i, k in enumerate(("p808", "sig", "bak", "ovr"))}
+    except Exception:
+        return None
+
+
 # --------------------------------------------------------------- niveles
 
 
@@ -316,6 +343,12 @@ class ClipScore:
     stoi_out: float | None
     pesq_in: float | None
     pesq_out: float | None
+    dnsmos_sig_in: float | None
+    dnsmos_sig_out: float | None
+    dnsmos_bak_in: float | None
+    dnsmos_bak_out: float | None
+    dnsmos_ovr_in: float | None
+    dnsmos_ovr_out: float | None
     level_in: float
     level_out: float
     level_delta: float
@@ -354,6 +387,8 @@ def score_clip(
     lvl_in, lvl_out = level_p999(noisy), level_p999(out)
     li, lo = lufs_integrated(noisy, sr), lufs_integrated(out, sr)
     lufs_delta = (lo - li) if li is not None and lo is not None else None
+    d_in = dnsmos_scores(noisy, sr) or {}
+    d_out = dnsmos_scores(out, sr) or {}
     n_frames = len(clean) // max(1, int(sr * 0.030))
     frac = float(speech_mask(clean, sr).mean()) if n_frames else 0.0
 
@@ -383,6 +418,12 @@ def score_clip(
         stoi_out=stoi_score(clean, out, sr),
         pesq_in=pesq_score(clean, noisy, sr),
         pesq_out=pesq_score(clean, out, sr),
+        dnsmos_sig_in=d_in.get("sig"),
+        dnsmos_sig_out=d_out.get("sig"),
+        dnsmos_bak_in=d_in.get("bak"),
+        dnsmos_bak_out=d_out.get("bak"),
+        dnsmos_ovr_in=d_in.get("ovr"),
+        dnsmos_ovr_out=d_out.get("ovr"),
         level_in=round(lvl_in, 2),
         level_out=round(lvl_out, 2),
         level_delta=round(lvl_out - lvl_in, 2),
