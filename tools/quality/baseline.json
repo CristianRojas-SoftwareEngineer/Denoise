@@ -1,0 +1,44 @@
+{
+  "clips": {
+    "voz_3s": {
+      "name": "voz_3s",
+      "sr": 48000,
+      "seconds": 3.0,
+      "si_sdr_in": 0.06,
+      "si_sdr_out": 6.74,
+      "si_sdr_gain": 6.68,
+      "si_sdr_gain_speech": 6.74,
+      "stoi_in": 0.6090622383428536,
+      "stoi_out": 0.8381083800264307,
+      "pesq_in": 1.0458062887191772,
+      "pesq_out": 1.196401834487915,
+      "level_in": -10.41,
+      "level_out": -12.57,
+      "level_delta": -2.16,
+      "lag": 0,
+      "active_fraction": 0.9,
+      "warnings": []
+    },
+    "voz_65s": {
+      "name": "voz_65s",
+      "sr": 48000,
+      "seconds": 65.0,
+      "si_sdr_in": 10.0,
+      "si_sdr_out": 12.67,
+      "si_sdr_gain": 2.67,
+      "si_sdr_gain_speech": 21.39,
+      "stoi_in": 0.9374396254410651,
+      "stoi_out": 0.9752846818132956,
+      "pesq_in": 1.9904578924179077,
+      "pesq_out": 3.3879668712615967,
+      "level_in": -14.51,
+      "level_out": -14.65,
+      "level_delta": -0.13,
+      "lag": 0,
+      "active_fraction": 0.202,
+      "warnings": [
+        "solo 20 % de voz activa: métrica poco representativa"
+      ]
+    }
+  }
+}

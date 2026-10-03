@@ -65,6 +65,7 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
 9. [🧪 Desarrollo y Tests](#9--desarrollo-y-tests)
    - [9.1. Ejecución de Pruebas](#91-ejecución-de-pruebas)
    - [9.2. Video manual de prueba](#92-video-manual-de-prueba)
+   - [9.3. Benchmark de calidad de audio](#93-benchmark-de-calidad-de-audio)
 10. [📂 Estructura del Proyecto](#10--estructura-del-proyecto)
 11. [📄 Licencia y Atribuciones](#11--licencia-y-atribuciones)
 
@@ -323,6 +324,17 @@ cargo build --release
 ./target/release/denoise assets/e2e_vertical_1080x1920_16s.mp4 --dry-run
 ```
 
+### 9.3. Benchmark de calidad de audio
+
+Los tests verifican que nada se rompa; el benchmark mide *cuánto* limpia el DSP. Tres métricas complementarias —SI-SDR (ruido eliminado), STOI (voz inteligible) y PESQ (naturalidad)— cuyo significado sin jerga está en [docs/metrics.md](docs/metrics.md):
+
+```bash
+pip install -r tools/quality/requirements.txt
+python tools/quality/benchmark.py run --set tests_data --work out/bench
+```
+
+El comando ejecuta el DSP sobre el set de clips y compara contra la línea base comprometida (`tools/quality/baseline.json`), fallando si alguna métrica cae. El historial de resultados vive en [docs/benchmark.md](docs/benchmark.md); el uso detallado de la herramienta, en [tools/quality/README.md](tools/quality/README.md).
+
 ---
 
 ## 10. 📂 Estructura del Proyecto
@@ -344,8 +356,18 @@ cargo build --release
 ├── docs/ # Documentación técnica de diseño y especificación
 │ ├── design.md # Arquitectura detallada, DSP y contratos de interfaz
 │ ├── specifications.md # Especificación de requerimientos RF, RNF y DoD
+│ ├── metrics.md # Métricas de calidad de audio explicadas sin jerga
+│ ├── benchmark.md # Registro histórico de resultados de calidad
+├── tools/quality/ # Benchmark periódico de calidad (SI-SDR, STOI, PESQ)
+│ ├── metrics.py # Implementación de las métricas
+│ ├── benchmark.py # CLI run/score + puerta de regresión
+│ ├── clips.json # Manifiesto de sets de clips
+│ ├── baseline.json # Línea base comprometida
+│ └── README.md # Uso de la herramienta
 ├── assets/ # Fixture manual E2E (`e2e_vertical_1080x1920_16s.mp4`)
-├── examples/gen_vectors.rs # Generador de vectores con voz real del EvalSet
+├── examples/ # Harnesses y generadores (no se distribuyen en el binario)
+│ ├── gen_vectors.rs # Generador de vectores con voz real del EvalSet
+│ └── process_wav.rs # Ejecuta el DSP sobre pares WAV (para benchmark)
 ├── tests/ # Tests de integración y validación con golden vectors
 │ ├── common/si_sdr.rs # Helper SI-SDR Rust puro
 │ ├── data/*.wav + README.md # Vectores versionados + descripción

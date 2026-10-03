@@ -4,3 +4,5 @@ target/
 out/
 limpios/
 *.log
+__pycache__/
+*.py[cod]

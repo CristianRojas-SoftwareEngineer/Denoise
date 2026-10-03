@@ -31,3 +31,7 @@ actual. Paridad verificada contra sherpa-onnx (1 LSB PCM16).
 - `referencia65s_dpdfnet.wav` - salida de DPDFNet sobre `voz65s_noisy.wav`, congelada
 
 > **Nota:** Estos archivos son deterministas y se mantienen congelados. Si se requiere regenerarlos manualmente, usar `cargo run --release --example gen_vectors -- <dir_eval>`.
+
+## Benchmark de calidad
+
+Los pares (`voz_clean.wav`, `voz_noisy.wav`) y (`voz65s_clean.wav`, `voz65s_noisy.wav`) son además el set `tests_data` del benchmark (`tools/quality/clips.json`): las salidas del DSP sobre estos mismos archivos se puntúan contra la voz limpia. Ver [docs/metrics.md](../../docs/metrics.md) y [docs/benchmark.md](../../docs/benchmark.md). Si se regeneran o sustituyen los vectores, hay que re-ejecutar el benchmark y actualizar `tools/quality/baseline.json`.

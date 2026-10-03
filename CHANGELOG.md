@@ -11,6 +11,11 @@
 ### Tests
 - `test_golden_65s`: el log marcaba la mejora con un umbral `mín 5.0 dB` que ese par no asserta (solo verifica paridad); ahora se informa como dato no verificado.
 
+### Calidad
+- `tools/quality/`: benchmark periódico de calidad del DSP con tres métricas complementarias (SI-SDR para ruido eliminado, STOI para voz inteligible, PESQ para naturalidad), harness Rust `examples/process_wav.rs` (misma ruta que `denoise` internamente), manifiesto `clips.json` y puerta de regresión contra `baseline.json` comprometida.
+- `docs/metrics.md`: significado de cada métrica explicado sin jerga; `docs/benchmark.md`: registro histórico, con línea base DPDFNet 2026-10-03 (par 3 s a SNR 0 dB: +6,68 dB SI-SDR, STOI 0,838, PESQ 1,196; par 65 s a SNR 10 dB: +2,67 dB).
+- `README.md`: nueva subsección `9.3. Benchmark de calidad de audio` y árbol de `§10` actualizado con los ficheros nuevos.
+
 ## 1.0.0 (2026-09-13)
 
 ### Features
