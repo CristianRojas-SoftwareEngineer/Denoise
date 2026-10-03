@@ -18,8 +18,16 @@ DPDFNet (`Ceva-IP/DPDFNet_EvalSet`, Apache 2.0). Nunca se generan en
 
 Las referencias se generaron con **DPDFNet 48 kHz HR**
 (`dpdfnet8_48khz_hr.onnx`, Ceva-IP/DPDFNet, Apache 2.0) ejecutado por este
-mismo port en Rust. Congeladas como línea base de regresión del pipeline
-actual. Paridad verificada contra sherpa-onnx (1 LSB PCM16).
+mismo port en Rust y congeladas como línea base de regresión. La del par 3 s
+sigue **pre-gate**; la del par 65 s se **re-congeló el 2026-10-03** tras
+validar el gate de pausa, regenerándola con este mismo port sobre
+`voz65s_noisy.wav` congelado (`examples/process_wav.rs`, mismo camino
+`denoise_wav`; el EvalSet completo no está en la máquina). Paridad verificada
+contra sherpa-onnx (1 LSB PCM16) en el pipeline pre-gate: con el gate activo la
+voz sigue bit-idéntica (×1.0), pero la salida completa ya no, porque las pausas
+se atenúan −25 dB tras la síntesis. Ambos dorados en verde — 67,77 dB y
+100,00 dB — sin relajar el umbral ≥60 dB (ver
+[docs/design.md](../../docs/design.md) §6).
 
 ## Archivos
 
@@ -35,7 +43,7 @@ actual. Paridad verificada contra sherpa-onnx (1 LSB PCM16).
   16kHz a 48kHz. Solo para el benchmark (sin referencia congelada: la salida
   la genera `run` en cada corrida).
 
-> **Nota:** Estos archivos son deterministas y se mantienen congelados. Si se requiere regenerarlos manualmente, usar `cargo run --release --example gen_vectors -- <dir_eval>`.
+> **Nota:** Estos archivos son deterministas y se mantienen congelados. Si se requiere regenerarlos manualmente, usar `cargo run --release --example gen_vectors -- <dir_eval>`; la referencia del par 65 s puede re-congelarse sin EvalSet con `examples/process_wav.rs` sobre `voz65s_noisy.wav` (mismo camino `denoise_wav`).
 
 ## Benchmark de calidad
 

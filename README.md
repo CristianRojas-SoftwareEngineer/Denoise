@@ -73,9 +73,9 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
 
 ## 2. ✨ Características Principales
 
-- 🎙️ **Denoise Neuronal de Última Generación**: Utiliza DPDFNet (`dpdfnet8_48khz_hr.onnx`, grafo único stateful a 48 kHz) para separar eficazmente voz humana de ruidos continuos o transitorios (ventiladores, tráfico, reverberación, tecleo). Salida bit-exacta respecto a sherpa-onnx (1 LSB PCM16).
+- 🎙️ **Denoise Neuronal de Última Generación**: Utiliza DPDFNet (`dpdfnet8_48khz_hr.onnx`, grafo único stateful a 48 kHz) para separar eficazmente voz humana de ruidos continuos o transitorios (ventiladores, tráfico, reverberación, tecleo). La voz sale con la escala exacta del modelo (×1.0); un gate de pausa atenúa −25 dB las zonas sin voz (ver [docs/design.md](docs/design.md) §6).
 - ⚡ **Stream Copy de Video Inalterado (`-c:v copy`)**: Sin recodificación de video, logrando tiempos de ejecución sumamente veloces y preservación visual idéntica al original.
-- 🎚️ **Sin Normalización Artificial**: La salida conserva la escala exacta del modelo (sin ganancia global ni limiter), lo que garantiza paridad con la referencia y máxima fidelidad.
+- 🎚️ **Sin Normalización Artificial**: No hay ganancia global ni limiter: la voz conserva la escala exacta del modelo (×1.0) y solo las pausas se atenúan con el gate de pausa (−25 dB), sin reescalar la señal.
 - 🔄 **Sincronización A/V Cuidadosa**: Manejo robusto de contenedores con *edit lists* (`-ignore_editlist 1`, solo en `mov/mp4/m4v/m4a/3gp/3g2/mj2`) para evitar cualquier desfase temporal entre video y audio procesado.
 - 📁 **Procesamiento Masivo y Automatización**: Soporta lotes de archivos, exploración de carpetas recursiva (`--recursive`), prefijos/sufijos y omisión de archivos existentes (`--skip-existing`).
 - 🤖 **Modo Headless / CI / Scripts (`--json`)**: Emite reportes estructurados en formato JSON y códigos de salida estándar para pipelines de producción.
@@ -243,7 +243,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 - **Solo el primer stream de video**: se copia `0:v:0`; el resto de streams de video se descartan.
 - **Sin subtítulos ni metadatos**: los subtítulos, capítulos y metadatos del contenedor original **no** se copian a la salida.
 - **Procesamiento secuencial**: los videos de un lote se procesan uno a uno, sin paralelismo. La inferencia es CPU-only (no usa GPU).
-- **Sin normalización ni loudness**: la salida conserva la escala exacta del modelo. Si el audio resultante queda muy bajo de volumen, es el comportamiento esperado; la herramienta no aplica ganancia automática.
+- **Sin normalización ni loudness**: no hay ganancia global ni limiter; la voz conserva la escala exacta del modelo y solo las pausas se atenúan (gate de pausa, −25 dB). Si el audio resultante queda muy bajo de volumen, es el comportamiento esperado; la herramienta no aplica ganancia automática.
 - **Remux a MP4**: la salida es siempre `.mp4` (con stream copy del video), independientemente de la extensión del archivo de entrada.
 
 ---
@@ -274,7 +274,8 @@ flowchart LR
  B --> C["STFT<br/>(Ventana Vorbis 960)"]
  C --> D["DPDFNet ONNX<br/>(Grafo único stateful)"]
  D --> E["iSTFT Overlap-Add<br/>(Síntesis 48kHz)"]
-  E --> F["FFmpeg Remux<br/>(AAC + Video Copy)"]
+  E --> E2["Gate de pausa<br/>(−25 dB sin voz)"]
+  E2 --> F["FFmpeg Remux<br/>(AAC + Video Copy)"]
   A -.->|Video Stream copy| F
   F --> G["Video Procesado<br/>(Audio Limpio)"]
 ```
@@ -284,8 +285,9 @@ flowchart LR
 3. **Inferencia Neuronal DPDFNet (`df/net.rs`)**: Grafo único stateful (`spec` + `state_in` → `spec_e` + `state_out`) ejecutado frame a frame por ONNX Runtime CPU, encadenando el estado recurrente sin trocear ni reiniciar. Sin bandas ERB externas: la normalización ocurre dentro del grafo.
 4. **Síntesis iSTFT (`df/stft.rs`)**:
  - Reconstruye la señal en el dominio del tiempo mediante iSTFT con síntesis *Overlap-Add* (réplica exacta de `knf::IStft` + recorte de 1920 muestras de sherpa-onnx).
- - Sin normalización ni limiter: la escala es la del modelo, bit-exacta con la referencia.
-5. **Remux de Video sin Pérdida (`ffmpeg_io.rs`)**: FFmpeg reensambla el contenedor combinando el flujo original de video (`-c:v copy`) con la nueva pista de audio codificada en AAC al bitrate solicitado. La duración de la salida se toma de la duración del contenedor de entrada, por lo que si el audio limpio resultante es más corto que el video, los últimos milisegundos quedan en silencio (comportamiento esperado, no un error). El detalle exacto de los argumentos está en [docs/design.md](docs/design.md).
+ - Sin normalización ni limiter: la escala es la del modelo.
+5. **Gate de pausa (`df/mod.rs`)**: un VAD solo-salida sobre RMS de marcos de 30 ms (voz a ≥ pico−30 dB, salida con histéresis a ≤ pico−45 dB tras 3 marcos, hangover de 5) atenúa −25 dB las pausas con fundidos raised-cosine, justo antes de cuantizar a PCM16. Solo atenuación de no-voz: la voz queda multiplicada por 1.0 (sin ganancia, normalización global ni limiter; detalle en [docs/design.md](docs/design.md) §6).
+6. **Remux de Video sin Pérdida (`ffmpeg_io.rs`)**: FFmpeg reensambla el contenedor combinando el flujo original de video (`-c:v copy`) con la nueva pista de audio codificada en AAC al bitrate solicitado. La duración de la salida se toma de la duración del contenedor de entrada, por lo que si el audio limpio resultante es más corto que el video, los últimos milisegundos quedan en silencio (comportamiento esperado, no un error). El detalle exacto de los argumentos está en [docs/design.md](docs/design.md).
 
 ---
 
@@ -312,7 +314,10 @@ Qué cubre cada nivel:
 | `cargo test` | `test_naming` (resolución de nombres, colisiones, recursión), `test_errors` (códigos de error con `FakeProvider`), `test_reporter` (orden y JSONL), `test_stft` (reconstrucción y delay) |
 | `cargo test --release -- --ignored` | `test_golden` (mejora ≥5 dB y paridad ≥60 dB frente a la referencia) y `test_remux` (stream copy y hash de vídeo) |
 
-Los vectores dorados son datos versionados en `tests/data/` y **no** se regeneran en CI. Para regenerarlos manualmente se usa el generador con voz real del EvalSet de DPDFNet:
+> [!NOTE]
+> Estado tras el gate de pausa: `test_golden_3s` (67,77 dB), `test_golden_65s` (100,00 dB, tras re-congelar su referencia con este mismo port sobre `voz65s_noisy.wav`) y `test_remux` están en verde. El umbral ≥60 dB no se relajó: solo se regeneró la expectativa tras validar la mejora (ver [docs/design.md](docs/design.md) §6).
+
+Los vectores dorados son datos versionados en `tests/data/` y **no** se regeneran en CI. Para regenerarlos manualmente se usa el generador con voz real del EvalSet de DPDFNet (la referencia del par 65 s admite además re-congelarse sin EvalSet con `examples/process_wav.rs` sobre `voz65s_noisy.wav`):
 ```bash
 cargo run --release --example gen_vectors -- <dir_eval>
 ```

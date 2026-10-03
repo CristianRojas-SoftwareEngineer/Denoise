@@ -38,7 +38,9 @@ voz limpia real, no contra ningún oráculo.
 ## 2. Línea base: DPDFNet 2026-10-03
 
 Motor: grafo único `dpdfnet8_48khz_hr.onnx` (Ceva-IP, Apache 2.0), pipeline
-stateful sin troceado ni normalización de salida.
+stateful sin troceado ni normalización de salida. Estos números son la línea
+base comprometida (`tools/quality/baseline.json`), medida **antes** del gate
+de pausa: el resultado con gate está en §5.
 
 | Clip | SI-SDR entrada → salida | Ganancia | STOI entrada → salida | PESQ entrada → salida | Nivel Δ | Retardo | Voz % |
 |---|---|---|---|---|---|---|---|
@@ -82,6 +84,8 @@ duración queda como trabajo futuro.
 | 2026-10-03 | Línea base DPDFNet | +6,68 | 0,838 | 1,196 | +2,67 | Primera medición con las tres métricas |
 | 2026-10-03 | Batería ampliada (p5, LUFS, RTF, DNSMOS) | +6,68 | 0,838 | 1,196 | +2,67 | Mismo DSP; la puerta ahora cubre 9 métricas. Detalle abajo |
 | 2026-10-03 | Batería 7 clips (sale `voz_65s`) | = | = | = | — | Sin cambio DSP; ver §8 |
+| 2026-10-03 | Gate de pausa: −25 dB en pausas, voz ×1.0 | +6,68 | 0,838 | 1,196 | — | 7/7 verde en la puerta, `baseline.json` sin mover. Detalle abajo. `test_golden_65s` en rojo por referencia pre-gate (ver `docs/design.md` §6) |
+| 2026-10-03 | Ratificación de `baseline.json` + re-congelado de la dorada 65 s | = | = | = | — | `--update-baseline` tras verificar la mejora; `referencia65s_dpdfnet.wav` regenerada sobre `voz65s_noisy.wav` → `test_golden_65s` en verde con 100,00 dB (umbral sin relajar). Puerta en verde de nuevo en la corrida posterior |
 
 Batería ampliada (mismo DSP, mismos clips):
 
@@ -95,6 +99,50 @@ ver §3); sonoridad estable en LUFS salvo −4,2 en el par 3 s (ruido eliminado
 pesa en la sonoridad); RTF incluye la carga del modelo en el primer clip.
 DNSMOS confirma BAK casi al techo y SIG restaurado. Tolerancias DNSMOS
 (OVR ±0,1, SIG/BAK ±0,15) fijadas con desvío 0,000000 en 5 corridas.
+
+Gate de pausa (2026-10-03, `src/df/mod.rs::apply_pause_gate`, set
+`tests_data` de 7 clips, comando del §1; números de `out/bench/report.json`
+de esa corrida):
+
+| Clip | SI-SDR entrada → salida | Ganancia | p5 | STOI entrada → salida | PESQ entrada → salida | SIG/BAK/OVR |
+|---|---|---|---|---|---|---|
+| voz_3s | +0,06 → +6,74 | +6,68 | +3,79 | 0,609 → 0,838 | 1,046 → 1,196 | 3,32 / 3,97 / 3,04 |
+| pub_snr0 | −1,36 → +9,32 | +10,68 | +5,36 | 0,730 → 0,913 | 1,198 → 2,080 | 3,10 / 4,10 / 2,89 |
+| car_snr0 | −1,92 → +11,70 | +13,62 | −3,01 | 0,849 → 0,955 | 1,124 → 2,588 | 3,48 / 4,03 / 3,19 |
+| car_snr5 | +2,74 → +13,15 | +10,41 | −2,32 | 0,872 → 0,944 | 1,249 → 2,232 | 3,38 / 4,12 / 3,15 |
+| office_snr0 | −2,18 → +8,93 | +11,11 | −23,02 | 0,741 → 0,914 | 1,122 → 2,189 | 2,99 / 3,93 / 2,73 |
+| train_snr5 | +3,50 → +15,84 | +12,34 | +11,97 | 0,938 → 0,983 | 1,392 → 2,833 | 3,47 / 4,16 / 3,23 |
+| restaurant_snr0 | −1,14 → +7,74 | +8,89 | −15,10 | 0,637 → 0,822 | 1,076 → 1,737 | 2,83 / 4,06 / 2,62 |
+
+| Clip | Nivel Δ | LUFS Δ | RTF | Voz % |
+|---|---|---|---|---|
+| voz_3s | −2,2 dB | −4,2 | 0,99 | 90 % |
+| pub_snr0 | −1,5 dB | −2,3 | 0,91 | 52 % |
+| car_snr0 | −1,5 dB | −0,7 | 0,90 | 43 % |
+| car_snr5 | −0,6 dB | +1,5 | 1,00 | 46 % |
+| office_snr0 | −2,2 dB | −2,3 | 1,02 | 48 % |
+| train_snr5 | −0,4 dB | +1,4 | 0,88 | 48 % |
+| restaurant_snr0 | −1,1 dB | −2,0 | 0,73 | 47 % |
+
+Lectura: puerta en verde — "sin regresiones" respecto a `baseline.json`,
+que en esa corrida **no se movió** (se ratificó después, ver fila y decisión
+más abajo), y ninguna métrica de puerta empeora. Mejoras medidas
+frente a la línea base: `car_snr0` PESQ 2,472 → 2,588 (+0,116);
+`office_snr0` DNSMOS SIG 2,926 → 2,986, BAK 3,869 → 3,927 y
+OVR 2,656 → 2,731; `train_snr5` BAK 4,113 → 4,159 y OVR 3,165 → 3,234;
+el resto queda dentro del ruido de medición. Nivel acotado (−0,4 a
+−2,2 dB), LUFS entre −4,2 y +1,5 y RTF 0,73–1,02: el gate solo atenúa
+pausas, la voz sale multiplicada por 1.0 y no hay ganancia, normalización
+ni limiter.
+
+Decisiones tomadas el 2026-10-03 tras aprobarlas: la mejora **se ratificó**
+en `tools/quality/baseline.json` con `run --set tests_data --work out/bench
+--update-baseline` (el §7 exige aprobación para moverla; la puerta volvió a
+dar «sin regresiones» en la corrida posterior) y
+`tests/data/referencia65s_dpdfnet.wav` **se re-congeló** con el propio port
+sobre `voz65s_noisy.wav` sin relajar el umbral `>=60 dB`, de modo que
+`test_golden_65s` vuelve a verde con paridad 100,00 dB (ver
+`docs/design.md` §6).
 
 ## 6. Set ampliado a 8 clips (2026-10-03)
 
