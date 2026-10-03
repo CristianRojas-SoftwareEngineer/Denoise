@@ -38,9 +38,11 @@ voz limpia real, no contra ningún oráculo.
 ## 2. Línea base: DPDFNet 2026-10-03
 
 Motor: grafo único `dpdfnet8_48khz_hr.onnx` (Ceva-IP, Apache 2.0), pipeline
-stateful sin troceado ni normalización de salida. Estos números son la línea
-base comprometida (`tools/quality/baseline.json`), medida **antes** del gate
-de pausa: el resultado con gate está en §5.
+stateful sin troceado ni normalización de salida. Estos números fueron la
+**primera** línea base, medida antes del gate de pausa; desde su
+ratificación del 2026-10-03 `tools/quality/baseline.json` contiene los valores
+**con** gate (§5) y ya no incluye el par 65 s (§8). Esta tabla queda como
+registro de aquella corrida.
 
 | Clip | SI-SDR entrada → salida | Ganancia | STOI entrada → salida | PESQ entrada → salida | Nivel Δ | Retardo | Voz % |
 |---|---|---|---|---|---|---|---|
@@ -57,8 +59,10 @@ de pausa: el resultado con gate está en §5.
   artefactos de deformación, no a ruido residual.
 - **El par de 65 s avisa solo**: 20 % de voz activa, el resto es silencio casi
   digital. Su ganancia global (+2,67) subestima el rendimiento real; la
-  métrica restringida a voz da +21,39 dB (ver `report.json` del run). Ese clip
-  no sirve como benchmark de calidad hasta que se reemplace.
+   métrica restringida a voz da +21,39 dB (medido en `out/bench/report.json` de
+   esa corrida; `out/` no se commitea y el fichero se sobrescribe en cada
+   corrida, por lo que el dato queda como registro de este documento). Ese clip
+   no sirve como benchmark de calidad hasta que se reemplace.
 - **Sin desincronización**: retardo 0 en ambos. El desplazamiento interno de
   1920 muestras del DSP queda compensado y no afecta el A/V.
 - **Nivel estable**: −2,2 / −0,1 dB respecto a la entrada, dentro de lo apenas
@@ -66,11 +70,11 @@ de pausa: el resultado con gate está en §5.
 
 ## 4. Limitaciones del set actual
 
-El set `tests_data` tiene 7 clips a SNR 0/5/10 dB, todos con voz española real del
+El set `tests_data` tiene 7 clips a SNR 0 y 5 dB, todos con voz española real del
 EvalSet DPDFNet: el par heredado de 3 s más 6 ventanas nuevas de 15 s con
 >=40 % de voz activa, cortadas de clips largos y remuestreadas de 16 kHz a
-48 kHz, usando las mezclas nativas (sin re-escalado). Desde 2026-10-03 sale
-del set el par heredado `voz_65s` (ver §8).
+48 kHz, usando las mezclas nativas (sin re-escalado). El par 65 s, a SNR
+10 dB, salió del set (ver §8).
 
 Límites restantes: un solo idioma; ventanas cortas (15 s, más el par heredado
 de 3 s); el par heredado `voz_65s` salió del set por estar dominado por
@@ -101,8 +105,9 @@ DNSMOS confirma BAK casi al techo y SIG restaurado. Tolerancias DNSMOS
 (OVR ±0,1, SIG/BAK ±0,15) fijadas con desvío 0,000000 en 5 corridas.
 
 Gate de pausa (2026-10-03, `src/df/mod.rs::apply_pause_gate`, set
-`tests_data` de 7 clips, comando del §1; números de `out/bench/report.json`
-de esa corrida):
+`tests_data` de 7 clips, comando del §1; números del `report.json` de esa
+corrida —`out/` no se commitea y el fichero se sobrescribe, así que la tabla
+queda como registro de este documento—):
 
 | Clip | SI-SDR entrada → salida | Ganancia | p5 | STOI entrada → salida | PESQ entrada → salida | SIG/BAK/OVR |
 |---|---|---|---|---|---|---|
@@ -131,7 +136,10 @@ frente a la línea base: `car_snr0` PESQ 2,472 → 2,588 (+0,116);
 `office_snr0` DNSMOS SIG 2,926 → 2,986, BAK 3,869 → 3,927 y
 OVR 2,656 → 2,731; `train_snr5` BAK 4,113 → 4,159 y OVR 3,165 → 3,234;
 el resto queda dentro del ruido de medición. Nivel acotado (−0,4 a
-−2,2 dB), LUFS entre −4,2 y +1,5 y RTF 0,73–1,02: el gate solo atenúa
+−2,2 dB), LUFS entre −4,2 y +1,5 y RTF de esa corrida 0,73–1,02 (métrica
+de tiempo, ±10 % entre corridas: la línea ratificada en
+`tools/quality/baseline.json` vale 0,69–1,14 con la carga del modelo en el
+primer clip, y las corridas posteriores 1,06–1,19): el gate solo atenúa
 pausas, la voz sale multiplicada por 1.0 y no hay ganancia, normalización
 ni limiter.
 
@@ -147,8 +155,10 @@ sobre `voz65s_noisy.wav` sin relajar el umbral `>=60 dB`, de modo que
 ## 6. Set ampliado a 8 clips (2026-10-03)
 
 Seis pares nuevos de 15 s (pub/car/office/train/restaurant a SNR 0/5,
->=40 % voz activa, mezclas nativas del EvalSet). Ganancias SI-SDR de
-+8,9 a +13,6 dB con STOI acompañando (0,82–0,98) y DNSMOS BAK ~4:
+>=40 % voz activa, mezclas nativas del EvalSet). Medición **pre-gate** del
+set de 8 clips (2026-10-03): con el gate activo los valores vigentes de
+estos seis clips están en §5 y en `tools/quality/baseline.json`. Ganancias
+SI-SDR de +8,9 a +13,6 dB con STOI acompañando (0,82–0,98) y DNSMOS BAK ~4:
 
 | Clip | SI-SDR | p5 | STOI | PESQ | SIG/BAK/OVR |
 |---|---|---|---|---|---|
@@ -213,9 +223,11 @@ diseño: es la única forma de romper este sistema.
 `voz_65s` sale de `tests_data`: queda muy por debajo del mínimo de voz
 activa que exige `tools/quality/README.md`, el resto es silencio casi
 digital y su ruido se fabricó re-mezclando en vez de usar la mezcla nativa.
-Ya estaba descalificado en §3 y la propia herramienta lo avisa en cada
-corrida. Los veredictos medidos con 8 clips (mezcla, gate, pausas) se
-mantienen en el historial tal cual se midieron; no se reescriben.
+Ya estaba descalificado en §3 y la propia herramienta lo avisó mientras
+estuvo en el set (hoy ya no aparece en `clips.json`). Los veredictos de la
+mezcla se midieron con 8 clips y los del gate y de las pausas con 7 (tras la
+salida de `voz_65s`); ambos se mantienen en el historial tal cual se
+midieron; no se reescriben.
 
 Cambios: `tools/quality/clips.json` (7 clips), `tools/quality/baseline.json`
 (sin la clave `voz_65s`, resto intacto). Sus WAV quedan en `tests/data/`

@@ -1,6 +1,6 @@
 //! Generador de vectores de test deterministas para `test_golden` (RNF-04).
 //!
-//! Ejecutar con `cargo run --example gen_vectors`.
+//! Ejecutar con `cargo run --release --example gen_vectors -- <dir_eval>`.
 //! Nunca se ejecuta en `cargo test` ni CI (preserva el congelado).
 //!
 //! Ver `docs/design.md §6` y `docs/specifications.md RNF-04`.

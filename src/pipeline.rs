@@ -1,7 +1,7 @@
 //! Módulo `pipeline.rs` — Orquestación del pipeline completo por video.
 //!
 //! Contrato: `docs/design.md §5, §8`.
-//! Especificaciones: `docs/specifications.md §2 RF-05, RF-08, RF-09, RNF-03, RNF-06`.
+//! Especificaciones: `docs/specifications.md §2 RF-05, RF-08, RF-09 y §3 RNF-03, RNF-06`.
 
 use crate::df::denoise_wav_with_provider;
 use crate::errors::E;

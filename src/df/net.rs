@@ -1,6 +1,6 @@
 //! Módulo `df::net` — Sesión `ort` y ejecución de inferencia para el grafo único DPDFNet.
 //!
-//! Contrato: `docs/design.md §6, §7`, `docs/specifications.md §RF-05, RNF-04`.
+//! Contrato: `docs/design.md §6, §7`, `docs/specifications.md §2 RF-05 y §3 RNF-04`.
 //! Modelo: `dpdfnet8_48khz_hr.onnx` (un solo grafo, stateful streaming).
 //!
 //! Interfaz ONNX verificada (metadatos del propio modelo):

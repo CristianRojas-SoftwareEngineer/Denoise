@@ -1,7 +1,7 @@
 //! Módulo `df::stft` — Framing, Vorbis STFT/iSTFT con la convención exacta knf
 //! (espectro crudo sin `wnorm`, inversa con `1/N`, recorte 1920).
 //!
-//! Contrato: `docs/design.md §6`, `docs/specifications.md §RF-05, RNF-04`.
+//! Contrato: `docs/design.md §6`, `docs/specifications.md §2 RF-05 y §3 RNF-04`.
 //! Convención exacta de sherpa-onnx/knf: espectro crudo sin `wnorm`,
 //! inversa con `1/N`, padding reflect de la señal cruda, recorte 1920.
 //! Constantes: `SR48000 / FFT960 / HOP480 / WNORM=1 / INV=1/960`.

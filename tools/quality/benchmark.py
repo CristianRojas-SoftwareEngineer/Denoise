@@ -14,7 +14,9 @@ clips y puerta de regresion contra `baseline.json`.
 Uso:
     python tools/quality/benchmark.py run --set tests_data --work out/bench
     python tools/quality/benchmark.py score --outputs out/bench --set tests_data
-    python tools/quality/benchmark.py score --outputs out/bench --update-baseline
+    python tools/quality/benchmark.py run --set tests_data --work out/bench --update-baseline
+Nota: ratificar siempre con `run` (`score` no mide RTF y dejaria `rtf: null`
+en la baseline).
 """
 
 from __future__ import annotations

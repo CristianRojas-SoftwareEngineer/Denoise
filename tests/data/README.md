@@ -4,7 +4,11 @@ Vectores PCM16 deterministas para `test_golden` (RNF-04).
 
 ## Generación
 
-Generados con `examples/gen_vectors.rs`:
+Vectores del par heredado (3 s y 65 s) generados con `examples/gen_vectors.rs`
+—que hoy no puede re-ejecutarse en esta máquina porque sus fuentes
+`spanish_street_*`/`spanish_subway_*` no están en el EvalSet disponible—;
+las ventanas de 15 s se cortaron directamente de las mezclas nativas
+`Clean/`+`Noisy/` del EvalSet (SNR 0/5) y se remuestrearon a 48 kHz:
 
 ```bash
 cargo run --release --example gen_vectors -- <dir_eval>
@@ -43,7 +47,7 @@ se atenúan −25 dB tras la síntesis. Ambos dorados en verde — 67,77 dB y
   16kHz a 48kHz. Solo para el benchmark (sin referencia congelada: la salida
   la genera `run` en cada corrida).
 
-> **Nota:** Estos archivos son deterministas y se mantienen congelados. Si se requiere regenerarlos manualmente, usar `cargo run --release --example gen_vectors -- <dir_eval>`; la referencia del par 65 s puede re-congelarse sin EvalSet con `examples/process_wav.rs` sobre `voz65s_noisy.wav` (mismo camino `denoise_wav`).
+> **Nota:** Estos archivos son deterministas y se mantienen congelados. Para regenerar el par heredado se usa `cargo run --release --example gen_vectors -- <dir_eval>` (requiere las fuentes `spanish_street_*`/`spanish_subway_*`, hoy no disponibles en esta máquina); además, esa ruta recongelaría las referencias **con** el gate activo, así que la referencia del par 3 s pre-gate ya no se puede reproducir por ese camino. La referencia del par 65 s puede re-congelarse sin EvalSet con `examples/process_wav.rs` sobre `voz65s_noisy.wav` (mismo camino `denoise_wav`).
 
 ## Benchmark de calidad
 

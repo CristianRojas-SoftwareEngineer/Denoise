@@ -315,9 +315,9 @@ Qué cubre cada nivel:
 | `cargo test --release -- --ignored` | `test_golden` (mejora ≥5 dB y paridad ≥60 dB frente a la referencia) y `test_remux` (stream copy y hash de vídeo) |
 
 > [!NOTE]
-> Estado tras el gate de pausa: `test_golden_3s` (67,77 dB), `test_golden_65s` (100,00 dB, tras re-congelar su referencia con este mismo port sobre `voz65s_noisy.wav`) y `test_remux` están en verde. El umbral ≥60 dB no se relajó: solo se regeneró la expectativa tras validar la mejora (ver [docs/design.md](docs/design.md) §6).
+> Estado tras el gate de pausa: `test_golden_3s`, `test_golden_65s` y `test_remux` están en verde con el umbral ≥60 dB sin relajar (paridades y detalle en [docs/design.md](docs/design.md) §6).
 
-Los vectores dorados son datos versionados en `tests/data/` y **no** se regeneran en CI. Para regenerarlos manualmente se usa el generador con voz real del EvalSet de DPDFNet (la referencia del par 65 s admite además re-congelarse sin EvalSet con `examples/process_wav.rs` sobre `voz65s_noisy.wav`):
+Los vectores dorados son datos versionados en `tests/data/` y **no** se regeneran en CI. Para regenerar el par heredado se usa `cargo run --release --example gen_vectors -- <dir_eval>` con voz real del EvalSet de DPDFNet (requiere las fuentes `spanish_street_*`/`spanish_subway_*`, hoy no disponibles en esta máquina; además esa ruta recongelaría las referencias **con** el gate, así que la referencia del par 3 s pre-gate ya no se puede reproducir por ese camino). La referencia del par 65 s admite re-congelarse sin EvalSet con `examples/process_wav.rs` sobre `voz65s_noisy.wav` (detalle en `tests/data/README.md`):
 ```bash
 cargo run --release --example gen_vectors -- <dir_eval>
 ```
@@ -331,7 +331,7 @@ cargo build --release
 
 ### 9.3. Benchmark de calidad de audio
 
-Los tests verifican que nada se rompa; el benchmark mide *cuánto* limpia el DSP. Tres métricas complementarias —SI-SDR (ruido eliminado), STOI (voz inteligible) y PESQ (naturalidad)— cuyo significado sin jerga está en [docs/metrics.md](docs/metrics.md):
+Los tests verifican que nada se rompa; el benchmark mide *cuánto* limpia el DSP. Cuatro métricas principales complementarias —SI-SDR (ruido eliminado), STOI (voz inteligible), PESQ (naturalidad) y DNSMOS (nota de humano sin referencia)— más las columnas de diagnóstico (p5, nivel, LUFS, RTF, voz %), con una puerta de 9 tolerancias; el significado sin jerga está en [docs/metrics.md](docs/metrics.md):
 
 ```bash
 pip install -r tools/quality/requirements.txt
@@ -363,7 +363,7 @@ El comando ejecuta el DSP sobre el set de clips y compara contra la línea base 
 │ ├── specifications.md # Especificación de requerimientos RF, RNF y DoD
 │ ├── metrics.md # Métricas de calidad de audio explicadas sin jerga
 │ ├── benchmark.md # Registro histórico de resultados de calidad
-├── tools/quality/ # Benchmark periódico de calidad (SI-SDR, STOI, PESQ)
+├── tools/quality/ # Benchmark periódico de calidad (SI-SDR, STOI, PESQ, DNSMOS, p5, LUFS, RTF)
 │ ├── metrics.py # Implementación de las métricas
 │ ├── benchmark.py # CLI run/score + puerta de regresión
 │ ├── clips.json # Manifiesto de sets de clips

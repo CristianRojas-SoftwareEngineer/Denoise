@@ -2,13 +2,13 @@
 
 Herramienta permanente del proyecto para medir la calidad del DSP y detectar
 regresiones. Complementa a `test_golden` (Rust): el test es una puerta rápida
-sin dependencias, esta herramienta es el análisis completo con tres métricas.
+sin dependencias, esta herramienta es el análisis completo con las cuatro métricas principales (y sus columnas de diagnóstico).
 
 ## Por qué existe
 
 Medir solo SI-SDR era insuficiente. Un denoiser que sobre-suprime (quita ruido
 de más y deforma la voz) **mejora** SI-SDR y **empeora** la voz resultante, y
-ninguna puerta anterior lo detectaba. Las tres métricas juntas lo cubren:
+ninguna puerta anterior lo detectaba. Las cuatro métricas juntas lo cubren:
 
 | Métrica | Qué mide | Eje |
 |---|---|---|
@@ -40,13 +40,14 @@ python tools/quality/benchmark.py run --set tests_data --work out/bench
 python tools/quality/benchmark.py score --outputs out/bench
 
 # 3. Actualizar la línea base tras un cambio intencionado:
-python tools/quality/benchmark.py score --outputs out/bench --update-baseline
+python tools/quality/benchmark.py run --set tests_data --work out/bench --update-baseline
 ```
+(usar `run`: `score` no mide RTF y dejaría `rtf: null` en la baseline)
 
 `--work` y `--outputs` pueden ser el mismo directorio. `out/` está en
 `.gitignore`: los artefactos no se commitean, solo `baseline.json`.
 
-## Comparar dos builds (p. ej. DFN3 vs DPDFNet)
+## Comparar dos builds (p. ej. este DPDFNet vs otra versión del modelo)
 
 ```bash
 # build A en su worktree, con su propio model-dir:
@@ -65,8 +66,15 @@ voz limpia real, no contra ningún oráculo.
 `baseline.json` es la línea base comprometida. `score` falla (exit 1) si:
 
 - ganancia SI-SDR cae más de 0.5 dB,
+- p5 cae más de 1.0 dB,
 - STOI de salida cae más de 0.02,
-- PESQ de salida cae más de 0.05.
+- PESQ de salida cae más de 0.05,
+- DNSMOS SIG/BAK de salida cae más de 0.15 u OVR más de 0.1,
+- `lufs_delta` sale de ±1.5 dB,
+- el RTF supera 2× el de la baseline,
+- alguna métrica de puerta (o su valor en la baseline) es `NaN`/`±inf`.
+
+`None` (métrica no calculada) se salta.
 
 Actualizala **solo** cuando el cambio sea intencionado y hayas verificado que la
 nueva base es realmente buena, no solo distinta.
@@ -78,7 +86,7 @@ tasa de muestreo; la salida la genera `run`. Criterios para que un clip sirva:
 
 - voz real, no tonos sintéticos (un denoiser trata un tono como ruido tonal);
 - fracción de voz activa > 35 % (la herramienta avisa si es menor);
-- varias SNRs (0/5/10 dB) y condiciones de ruido;
+- varias SNRs y condiciones de ruido (hoy 0/5 dB; conviene reintroducir un clip a 10 dB, que dejó de estar en el set);
 - la referencia limpia debe ser una grabación real, no salida de otro modelo.
 
 El set actual (`tests_data`) es mínimo: el par heredado de 3 s más 6 ventanas

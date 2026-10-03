@@ -1,22 +1,25 @@
 """Metricas de calidad de audio para denoise.
 
 Contrato: `docs/specifications.md §6`, `docs/design.md §6`.
-Golangpe: `si_sdr` reproduce exactamente la convencion de
+Golpe: `si_sdr` reproduce exactamente la convencion de
 `tests/common/si_sdr.rs` para que los numeros del benchmark y los del test
 de regresion Rust sean comparables (mismo zero-mean, mismo `eps = 1e-8`, mismo
 tope de100.0 para paridad).
 
-Las tres metricas cubren ejes distintos y none sustituye a las otras:
+Las cuatro metricas principales cubren ejes distintos y ninguna sustituye a las otras:
 
 - `si_sdr`: cuanto ruido se eliminó. Invariante a escala, asi que NO ve
   diferencias de volumen ni de ganancia.
 - `stoi`: integridad/intelligibilidad de la voz. Penaliza la deformacion.
 - `pesq`: MOS-LQO (P.862.2). Penaliza la deformacion y el ruido residual.
   Solo admite 8000 o 16000 Hz, por lo que se evalua sobre la senal remuestreada.
+- `dnsmos` (SIG/BAK/OVR): nota de humano sin referencia sobre voz, fondo y global.
+
+Columnas de diagnóstico: `si_sdr_p5` (peor segundo audible), nivel, LUFS y RTF.
 
 Medir solo SI-SDR es el error que motivó esta herramienta: un denoiser que
 sobre-suprime (quita ruido de mas y deforma la voz) mejora SI-SDR y empeora
-STOI/PESQ. Las tres juntas son necesarias para detectar esa regresión.
+STOI/PESQ/DNSMOS. Las cuatro juntas son necesarias para detectar esa regresión.
 """
 
 from __future__ import annotations

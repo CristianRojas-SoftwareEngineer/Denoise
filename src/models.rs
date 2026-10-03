@@ -4,7 +4,7 @@
 //! Origen canónico: `https://huggingface.co/Ceva-IP/DPDFNet/resolve/main/onnx/dpdfnet8_48khz_hr.onnx`.
 //! SHA256: `7b3afbb260a08fe9af3d16e3bda992971be1e7e951d1dee7c2d235f5c43f5631`.
 //! Licencia del modelo: Apache 2.0 (Ceva-IP/DPDFNet).
-//! Contrato: `docs/design.md §7`, `docs/specifications.md §2 RF-06, RNF-05`.
+//! Contrato: `docs/design.md §7`, `docs/specifications.md §2 RF-06 y §3 RNF-05`.
 
 use crate::errors::E;
 use sha2::{Digest, Sha256};

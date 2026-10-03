@@ -1,11 +1,13 @@
 //! Módulo `df` — Orquestación principal del DSP de DPDFNet.
 //!
 //! Submódulos: `stft`, `net`.
-//! Contrato: `docs/design.md §6`, `docs/specifications.md §RF-05, RNF-04`.
+//! Contrato: `docs/design.md §6`, `docs/specifications.md §2 RF-05 y §3 RNF-04`.
 //!
 //! DPDFNet 48 kHz opera como grafo único stateful: la normalización de features
 //! (ERB y spec) ocurre dentro del ONNX, por lo que este módulo no calcula bandas
-//! ERB. El pipeline es STFT -> frames al modelo encadenando estado -> iSTFT.
+//! ERB. El pipeline es STFT -> frames al modelo encadenando estado -> iSTFT
+//! -> gate de pausa (`apply_pause_gate`: −25 dB en no-voz, voz ×1.0) antes de
+//! cuantizar a PCM16.
 
 pub mod net;
 pub mod stft;
@@ -206,7 +208,10 @@ fn apply_pause_gate(samples: &mut [f32]) {
     let crush = 10f64.powf(GATE_CRUSH_DB / 20.0) as f32;
     let mut gain = Vec::with_capacity(n_frames * GATE_FRAME);
     for &is_voice in &keep {
-        gain.extend(std::iter::repeat_n(if is_voice { 1.0 } else { crush }, GATE_FRAME));
+        gain.extend(std::iter::repeat_n(
+            if is_voice { 1.0 } else { crush },
+            GATE_FRAME,
+        ));
     }
 
     let mid = (1.0 + crush) / 2.0;
