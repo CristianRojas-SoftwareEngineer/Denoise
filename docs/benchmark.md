@@ -91,6 +91,7 @@ duración queda como trabajo futuro.
 | 2026-10-03 | Batería 7 clips (sale `voz_65s`) | = | = | = | — | Sin cambio DSP; ver §8 |
 | 2026-10-03 | Gate de pausa: −25 dB en pausas, voz ×1.0 | +6,68 | 0,838 | 1,196 | — | 7/7 verde en la puerta, `baseline_default.json` sin mover. Detalle abajo. `test_golden_65s` en rojo por referencia pre-gate (ver `docs/design.md` §6) |
 | 2026-10-03 | Ratificación de `baseline_default.json` + re-congelado de la dorada 65 s | = | = | = | — | `--update-baseline` tras verificar la mejora; `referencia65s_dpdfnet.wav` regenerada sobre `voz65s_noisy.wav` → `test_golden_65s` en verde con 100,00 dB (umbral sin relajar). Puerta en verde de nuevo en la corrida posterior |
+| 2026-10-23 | Gate de RTF absoluto (no relativo) en `benchmark.py` | = | = | = | = | Reemplazado `cur_rtf > base_rtf * 2.0` (falso positivo por hardware ~2x más lento: train_snr5 RTF 1,50 vs base 0,69 → 2,17x) por `cur_rtf > 5.0` umbral absoluto. El RTF es hardware-dependent (RNF-03) y no mide calidad DSP; las métricas de calidad (SI-SDR, STOI, PESQ, DNSMOS) son idénticas. Puerta en verde en los 3 perfiles. |
 
 Batería ampliada (mismo DSP, mismos clips):
 

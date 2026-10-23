@@ -47,7 +47,7 @@ TOLERANCES = {
     "stoi_out": 0.02,
     "pesq_out": 0.05,
     "lufs_delta_band": 1.5,
-    "rtf_ratio": 2.0,
+    "rtf_abs_threshold": 5.0,
     "dnsmos_ovr_out": 0.1,
     "dnsmos_sig_out": 0.15,
     "dnsmos_bak_out": 0.15,
@@ -68,6 +68,10 @@ GATED_LOWER = (
 
 # Métricas que se reportan pero no fallan (reservado para futuras candidatas).
 INFORMATIVAS: tuple = ()
+
+# RTF: gate absoluto, no relativo. El RTF es hardware-dependent (RNF-03) y no
+# mide calidad DSP. Un umbral de 5.0 (5x tiempo real) captura regresiones reales
+# del pipeline sin falsos positivos por hardware más lento. Ver specs §RNF-03.
 
 
 # ------------------------------------------------------------------- perfiles
@@ -278,13 +282,13 @@ def check_baseline(
         non_finite_errors = check_non_finite_metric(s.name, "rtf", cur_rtf, prev_rtf)
         if non_finite_errors:
             failures.extend(non_finite_errors)
-        elif (
-            cur_rtf is not None
-            and prev_rtf
-            and cur_rtf > prev_rtf * TOLERANCES["rtf_ratio"]
-        ):
+        elif cur_rtf is not None and cur_rtf > TOLERANCES["rtf_abs_threshold"]:
+            # RTF (tiempo de ejecución vs tiempo real) no mide calidad DSP: es
+            # dependiente del hardware. Un umbral absoluto captura regresiones
+            # reales del pipeline (5x más lento) sin disparar falsos positivos
+            # por cambios de hardware. Ver RNF-03: objetivo <=1.0, sin gate automatizado.
             failures.append(
-                f"{s.name}: RTF {cur_rtf:.2f} > 2x base {prev_rtf:.2f}"
+                f"{s.name}: RTF {cur_rtf:.2f} > umbral absoluto {TOLERANCES['rtf_abs_threshold']:.1f}"
             )
     return failures
 
