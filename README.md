@@ -213,6 +213,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 | `--highpass` | Flag | `false` | Activa filtro pasa-altos IIR a 70 Hz para eliminar rumble subgrave post-inferencia. |
 | `--normalize` | Flag | `false` | Normaliza la sonoridad del audio remuxado a -16.0 LUFS EBU R128 (estándar podcasts/web). |
 | `--target-lufs <LUFS>` | Opción | `None` | Nivel objetivo de sonoridad EBU R128 en LUFS (-36 a -12, ej: -16 podcasts/web, -23 broadcast). |
+| `--stereo` | Flag | `false` | Preserva audio estéreo de 2 canales procesando cada canal independientemente con DPDFNet. |
 | `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
 | `--overwrite` | Flag | `false` | Sobrescribe el destino si ya existe (excluyente con `--skip-existing`). Sin flags + destino existe → error `E_OUTPUT_EXISTS` (exit `2`). |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |
@@ -244,7 +245,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 
 ## 6. ⚠️ Limitaciones Conocidas
 
-- **Audio mono 48 kHz**: se procesa únicamente la primera pista de audio, convertida a mono 48 kHz. Las pistas de audio adicionales del original **no se conservan** en la salida.
+- **Disposición de canales**: por defecto procesa la primera pista de audio convertida a mono 48 kHz. Para videos con audio estéreo de 2 canales, el flag `--stereo` permite preservar la imagen estéreo original procesando cada canal de forma dual independiente. Pistas de audio adicionales (3ª en adelante) no se conservan.
 - **Solo el primer stream de video**: se copia `0:v:0`; el resto de streams de video se descartan.
 - **Sin subtítulos ni metadatos**: los subtítulos, capítulos y metadatos del contenedor original **no** se copian a la salida.
 - **Procesamiento secuencial**: los videos de un lote se procesan uno a uno, sin paralelismo. La inferencia es CPU-only (no usa GPU).

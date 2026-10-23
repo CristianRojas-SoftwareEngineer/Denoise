@@ -5,7 +5,7 @@
 
 use crate::df::denoise_wav_with_params;
 use crate::errors::E;
-use crate::ffmpeg_io::{extract_mono48k, probe, remux_copy, verify_output_lightweight};
+use crate::ffmpeg_io::{extract_audio48k, probe, remux_copy, verify_output_lightweight};
 use crate::models::ModelsProvider;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,6 +28,7 @@ pub struct PipelineParams<'a> {
     pub dry_blend: f32,
     pub pause_gate_db: f64,
     pub highpass: bool,
+    pub stereo: bool,
     pub target_lufs: Option<f64>,
     pub model_dir: &'a Path,
     pub models_provider: &'a dyn ModelsProvider,
@@ -150,9 +151,14 @@ where
     cleaner.track(tmp_out_wav.clone());
     cleaner.track(out_part_mp4.clone());
 
-    // 1-5%: Extracción de audio mono 48k PCM16
+    // 1-5%: Extracción de audio 48k PCM16 (mono o estéreo según flag y contenedor)
     progress_cb(1, "extrayendo audio");
-    extract_mono48k(params.ffmpeg, params.input, &tmp_in_wav)?;
+    let channels = if params.stereo && probe_res.channels == 2 {
+        2
+    } else {
+        1
+    };
+    extract_audio48k(params.ffmpeg, params.input, &tmp_in_wav, channels)?;
     progress_cb(5, "audio extraído");
 
     if let Some(flag) = &params.cancel_flag {

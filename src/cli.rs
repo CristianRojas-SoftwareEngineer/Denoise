@@ -81,6 +81,10 @@ pub struct Cli {
     #[arg(long = "target-lufs")]
     pub target_lufs: Option<f64>,
 
+    /// Preservar audio estéreo de 2 canales procesando cada canal independientemente
+    #[arg(long = "stereo")]
+    pub stereo: bool,
+
     /// Directorio para almacenar/buscar modelos ONNX (defecto: ~/.cache/denoise/models)
     #[arg(long = "model-dir")]
     pub model_dir: Option<PathBuf>,
@@ -694,6 +698,7 @@ pub fn run() -> anyhow::Result<()> {
         dry_blend: cli.dry_blend,
         pause_gate_db: cli.pause_gate_db,
         highpass: cli.highpass,
+        stereo: cli.stereo,
         target_lufs: effective_lufs,
         overwrite: cli.overwrite,
         skip_existing: cli.skip_existing,
@@ -715,6 +720,7 @@ pub struct BatchParams<'a> {
     pub dry_blend: f32,
     pub pause_gate_db: f64,
     pub highpass: bool,
+    pub stereo: bool,
     pub target_lufs: Option<f64>,
     pub overwrite: bool,
     pub skip_existing: bool,
@@ -765,6 +771,7 @@ pub fn process_batch(items: &[ResolvedItem], params: &BatchParams) -> i32 {
             dry_blend: params.dry_blend,
             pause_gate_db: params.pause_gate_db,
             highpass: params.highpass,
+            stereo: params.stereo,
             target_lufs: params.target_lufs,
             model_dir: params.model_dir,
             models_provider: params.models_provider,

@@ -14,6 +14,7 @@ pub struct ProbeResult {
     pub has_audio: bool,
     pub has_video: bool,
     pub duration: f64,
+    pub channels: u16,
 }
 
 /// Encuentra `ffmpeg` en `--ffmpeg-path` o en PATH (usando `PATHEXT` en Windows).
@@ -155,20 +156,52 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
         )));
     }
 
+    let channels = if has_audio {
+        let re_chan = Regex::new(r"Audio:.*?(mono|stereo|(\d+)\s*channels?)").unwrap();
+        if let Some(caps) = re_chan.captures(&stderr) {
+            if let Some(m) = caps.get(1) {
+                let s = m.as_str();
+                if s == "mono" {
+                    1
+                } else if s == "stereo" {
+                    2
+                } else if let Some(digits) = caps.get(2) {
+                    digits.as_str().parse::<u16>().unwrap_or(2).clamp(1, 2)
+                } else {
+                    2
+                }
+            } else {
+                2
+            }
+        } else if stderr.contains("stereo") {
+            2
+        } else {
+            1
+        }
+    } else {
+        0
+    };
+
     Ok(ProbeResult {
         has_audio,
         has_video,
         duration,
+        channels,
     })
 }
 
-/// Extrae la primera pista de audio a WAV mono 48kHz PCM16:
-/// `ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 -sample_fmt s16 TMP.in.wav`
+/// Extrae la primera pista de audio a WAV 48kHz PCM16 con la cantidad de canales especificada:
+/// `ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac <channels> -ar 48000 -sample_fmt s16 TMP.in.wav`
 ///
 /// `-sample_fmt s16` es obligatorio: sin él FFmpeg puede emitir `flt` (32-bit float)
 /// cuando el contenedor de entrada lo sugiere, lo que causaría un fallo silencioso
 /// en `WavReader::samples::<i16>()` o datos incorrectos en el pipeline DSP.
-pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<(), E> {
+pub fn extract_audio48k(
+    ffmpeg: &Path,
+    input: &Path,
+    tmp_wav: &Path,
+    channels: u16,
+) -> Result<(), E> {
     let mut cmd = Command::new(ffmpeg);
     cmd.arg("-y").arg("-v").arg("error");
     if is_mov_mp4(input) {
@@ -180,7 +213,7 @@ pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<()
         .arg("0:a:0")
         .arg("-vn")
         .arg("-ac")
-        .arg("1")
+        .arg(channels.to_string())
         .arg("-ar")
         .arg("48000")
         .arg("-sample_fmt")
@@ -199,6 +232,11 @@ pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<()
     }
 
     Ok(())
+}
+
+/// Extrae la primera pista de audio a WAV mono 48kHz PCM16:
+pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<(), E> {
+    extract_audio48k(ffmpeg, input, tmp_wav, 1)
 }
 
 /// Remuxa el video original con el audio procesado a AAC (con normalización loudnorm opcional):

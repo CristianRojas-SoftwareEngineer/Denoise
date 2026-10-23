@@ -85,11 +85,13 @@ pub fn denoise_wav_with_params(
         return Err(E::EInvalidInput("WAV de entrada está vacío".to_string()));
     }
 
-    let total_samples = samples_raw.len();
-    let total_duration_secs = total_samples as f64 / (SR as f64);
-
-    // Convertir i16 a f32 [-1.0, 1.0]
-    let samples_f32: Vec<f32> = samples_raw.iter().map(|&s| (s as f32) / 32768.0).collect();
+    let num_channels = spec.channels;
+    if num_channels != 1 && num_channels != 2 {
+        return Err(E::EInvalidInput(format!(
+            "Número de canales no soportado: {} (se requiere mono o estéreo)",
+            num_channels
+        )));
+    }
 
     // 3. Inicializar DSP helper y sesión ONNX
     let stft_helper = StftHelper::new();
@@ -100,9 +102,129 @@ pub fn denoise_wav_with_params(
     }
     let session = cache_guard.as_mut().unwrap();
 
-    // 4. Recorrido streaming: STFT -> inferencia encadenando estado -> iSTFT
-    // sin almacenar en heap la matriz espectral intermedia completa.
-    let padded = stft_helper.pad_signal(&samples_f32);
+    if num_channels == 1 {
+        let total_samples = samples_raw.len();
+        let total_duration_secs = total_samples as f64 / (SR as f64);
+        let samples_f32: Vec<f32> = samples_raw.iter().map(|&s| (s as f32) / 32768.0).collect();
+
+        let merged_samples = process_channel_samples(
+            &samples_f32,
+            session,
+            &stft_helper,
+            highpass,
+            pause_gate_db,
+            dry_blend,
+            total_duration_secs,
+            progress_cb,
+        )?;
+
+        // Escribir WAV mono PCM16
+        let mut writer = WavWriter::create(
+            out_wav,
+            WavSpec {
+                channels: 1,
+                sample_rate: spec.sample_rate,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .map_err(|e| E::EIo(std::io::Error::other(e)))?;
+
+        for &sample in &merged_samples {
+            let val_i16 = (sample * 32768.0).round().clamp(-32768.0, 32767.0) as i16;
+            writer
+                .write_sample(val_i16)
+                .map_err(|e| E::EIo(std::io::Error::other(e)))?;
+        }
+        writer
+            .finalize()
+            .map_err(|e| E::EIo(std::io::Error::other(e)))?;
+    } else {
+        // Estéreo (2 canales)
+        let num_frames = samples_raw.len() / 2;
+        let total_duration_secs = num_frames as f64 / (SR as f64);
+
+        let mut samples_l = Vec::with_capacity(num_frames);
+        let mut samples_r = Vec::with_capacity(num_frames);
+        for chunk in samples_raw.chunks_exact(2) {
+            samples_l.push((chunk[0] as f32) / 32768.0);
+            samples_r.push((chunk[1] as f32) / 32768.0);
+        }
+
+        // Progreso canal L (0% a 50%)
+        let cb_l = |cur: f64, tot: f64| {
+            progress_cb(cur * 0.5, tot);
+        };
+        let out_l = process_channel_samples(
+            &samples_l,
+            session,
+            &stft_helper,
+            highpass,
+            pause_gate_db,
+            dry_blend,
+            total_duration_secs,
+            &cb_l,
+        )?;
+
+        // Progreso canal R (50% a 100%)
+        let cb_r = |cur: f64, tot: f64| {
+            progress_cb(total_duration_secs * 0.5 + cur * 0.5, tot);
+        };
+        let out_r = process_channel_samples(
+            &samples_r,
+            session,
+            &stft_helper,
+            highpass,
+            pause_gate_db,
+            dry_blend,
+            total_duration_secs,
+            &cb_r,
+        )?;
+
+        // Escribir WAV estéreo PCM16 intercalado
+        let mut writer = WavWriter::create(
+            out_wav,
+            WavSpec {
+                channels: 2,
+                sample_rate: spec.sample_rate,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .map_err(|e| E::EIo(std::io::Error::other(e)))?;
+
+        for i in 0..num_frames {
+            let val_l = (out_l[i] * 32768.0).round().clamp(-32768.0, 32767.0) as i16;
+            let val_r = (out_r[i] * 32768.0).round().clamp(-32768.0, 32767.0) as i16;
+            writer
+                .write_sample(val_l)
+                .map_err(|e| E::EIo(std::io::Error::other(e)))?;
+            writer
+                .write_sample(val_r)
+                .map_err(|e| E::EIo(std::io::Error::other(e)))?;
+        }
+        writer
+            .finalize()
+            .map_err(|e| E::EIo(std::io::Error::other(e)))?;
+    }
+
+    Ok(())
+}
+
+/// Procesa las muestras de un único canal a través del pipeline STFT -> inferencia -> iSTFT -> post-filtros.
+#[allow(clippy::too_many_arguments)]
+fn process_channel_samples(
+    samples_f32: &[f32],
+    session: &mut DpdfNetSession,
+    stft_helper: &StftHelper,
+    highpass: bool,
+    pause_gate_db: f64,
+    dry_blend: f32,
+    total_duration_secs: f64,
+    progress_cb: &dyn Fn(f64, f64),
+) -> Result<Vec<f32>, E> {
+    let total_samples = samples_f32.len();
+    let padded = stft_helper.pad_signal(samples_f32);
     let total_frames = (padded.len().saturating_sub(crate::df::stft::FFT_SIZE))
         / crate::df::stft::HOP_SIZE
         + 1;
@@ -132,55 +254,25 @@ pub fn denoise_wav_with_params(
         },
     )?;
 
-    // 5. Post-filtrado pasa-altos opcional: eliminar rumble subgrave (<70 Hz)
-    //    de la señal sintetizada. Solo se aplica cuando `--highpass` está activo.
-    //    Se ubica DESPUÉS de la inferencia y ANTES del pause gate para que el
-    //    VAD no se sesgue por energía subsónica inaudible.
+    // Post-filtrado pasa-altos opcional
     let mut merged_samples: Vec<f32> = synthesized;
     if highpass {
         apply_highpass(&mut merged_samples, SR, HIGHPASS_CUTOFF_HZ);
     }
 
-    // 6. Sin normalización ni limiter: sherpa-onnx tampoco normaliza (con
-    // `attenuation_limit_db = 0`); solo recorta a [-1, 1] al cuantizar.
-    // Cualquier ganancia global o soft-clip altera la escala que el modelo
-    // produce y rompe la paridad con la referencia. El gate de pausa no
-    // reescala: solo atenúa donde no hay voz y deja la voz por 1.0.
+    // Pause gate
     apply_pause_gate(&mut merged_samples, pause_gate_db);
 
-    // Si dry_blend > 0.0, mezclar la señal procesada con la original para recuperar armónicos
+    // Dry blend opcional
     if dry_blend > 0.0 {
         let dry_factor = dry_blend.clamp(0.0, 1.0);
         let wet_factor = 1.0 - dry_factor;
-        for (wet, &dry) in merged_samples.iter_mut().zip(&samples_f32) {
+        for (wet, &dry) in merged_samples.iter_mut().zip(samples_f32) {
             *wet = *wet * wet_factor + dry * dry_factor;
         }
     }
 
-    // 6. Escribir WAV de salida PCM16
-    let mut writer = WavWriter::create(
-        out_wav,
-        WavSpec {
-            channels: 1,
-            sample_rate: spec.sample_rate,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )
-    .map_err(|e| E::EIo(std::io::Error::other(e)))?;
-
-    for &sample in &merged_samples {
-        // Como `soundfile.write(..., subtype=PCM_16)`: escala por 32768 y recorta.
-        let val_i16 = (sample * 32768.0).round().clamp(-32768.0, 32767.0) as i16;
-        writer
-            .write_sample(val_i16)
-            .map_err(|e| E::EIo(std::io::Error::other(e)))?;
-    }
-    writer
-        .finalize()
-        .map_err(|e| E::EIo(std::io::Error::other(e)))?;
-
-    Ok(())
+    Ok(merged_samples)
 }
 
 /// Muestras por marco del gate: 30 ms a 48 kHz.
