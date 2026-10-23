@@ -33,6 +33,7 @@ REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
 import metrics  # noqa: E402
+import numpy as np  # noqa: E402
 
 TOLERANCES = {
     "si_sdr_gain": 0.5,
@@ -66,10 +67,8 @@ INFORMATIVAS: tuple = ()
 # ------------------------------------------------------------------- entradas
 
 
-def read_wav(path: Path) -> tuple["np.ndarray", int]:
+def read_wav(path: Path) -> tuple[np.ndarray, int]:
     """Lee un WAV mono a f32 [-1, 1]. Prefiere soundfile, usa `wave` de respaldo."""
-    import numpy as np
-
     try:
         import soundfile as sf
 
