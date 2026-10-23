@@ -61,6 +61,10 @@ pub struct Cli {
     #[arg(long = "audio-bitrate", default_value = "192")]
     pub audio_bitrate: u32,
 
+    /// Fracción de mezcla con el audio original (0.0 = 100% limpio, 1.0 = 100% original; defecto: 0.0)
+    #[arg(long = "dry-blend", default_value = "0.0")]
+    pub dry_blend: f32,
+
     /// Directorio para almacenar/buscar modelos ONNX (defecto: ~/.cache/denoise/models)
     #[arg(long = "model-dir")]
     pub model_dir: Option<PathBuf>,
@@ -553,6 +557,16 @@ pub fn run() -> anyhow::Result<()> {
         std::process::exit(err.exit_code());
     }
 
+    // Validar dry-blend (0.0 a 1.0)
+    if !(0.0..=1.0).contains(&cli.dry_blend) {
+        let err = E::EInvalidInput(format!(
+            "El valor de dry-blend {} está fuera del rango permitido (0.0 - 1.0)",
+            cli.dry_blend
+        ));
+        eprintln!("Error: {}", err);
+        std::process::exit(err.exit_code());
+    }
+
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
     // Expansión
@@ -634,6 +648,7 @@ pub fn run() -> anyhow::Result<()> {
         model_dir: &model_dir,
         models_provider: &models_provider,
         audio_bitrate: cli.audio_bitrate,
+        dry_blend: cli.dry_blend,
         overwrite: cli.overwrite,
         skip_existing: cli.skip_existing,
         json_mode: cli.json,
@@ -651,6 +666,7 @@ pub struct BatchParams<'a> {
     pub model_dir: &'a Path,
     pub models_provider: &'a dyn crate::models::ModelsProvider,
     pub audio_bitrate: u32,
+    pub dry_blend: f32,
     pub overwrite: bool,
     pub skip_existing: bool,
     pub json_mode: bool,
@@ -697,6 +713,7 @@ pub fn process_batch(items: &[ResolvedItem], params: &BatchParams) -> i32 {
             input: &item.input,
             output: &item.output,
             audio_bitrate: params.audio_bitrate,
+            dry_blend: params.dry_blend,
             model_dir: params.model_dir,
             models_provider: params.models_provider,
             overwrite: params.overwrite,

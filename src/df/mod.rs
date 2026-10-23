@@ -35,6 +35,18 @@ pub fn denoise_wav_with_provider(
     provider: &dyn ModelsProvider,
     progress_cb: &dyn Fn(f64, f64),
 ) -> Result<(), E> {
+    denoise_wav_with_provider_and_blend(in_wav, out_wav, model_dir, provider, 0.0, progress_cb)
+}
+
+/// Procesa un archivo WAV con un proveedor de modelos específico y mezcla opcional dry-blend.
+pub fn denoise_wav_with_provider_and_blend(
+    in_wav: &Path,
+    out_wav: &Path,
+    model_dir: &Path,
+    provider: &dyn ModelsProvider,
+    dry_blend: f32,
+    progress_cb: &dyn Fn(f64, f64),
+) -> Result<(), E> {
     // 1. Cargar y verificar modelos
     let model_paths = provider.ensure_models(model_dir, progress_cb)?;
 
@@ -103,6 +115,15 @@ pub fn denoise_wav_with_provider(
     // reescala: solo atenúa donde no hay voz y deja la voz por 1.0.
     let mut merged_samples: Vec<f32> = synthesized;
     apply_pause_gate(&mut merged_samples);
+
+    // Si dry_blend > 0.0, mezclar la señal procesada con la original para recuperar armónicos
+    if dry_blend > 0.0 {
+        let dry_factor = dry_blend.clamp(0.0, 1.0);
+        let wet_factor = 1.0 - dry_factor;
+        for (wet, &dry) in merged_samples.iter_mut().zip(&samples_f32) {
+            *wet = *wet * wet_factor + dry * dry_factor;
+        }
+    }
 
     // 6. Escribir WAV de salida PCM16
     let mut writer = WavWriter::create(

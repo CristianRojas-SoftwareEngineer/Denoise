@@ -202,6 +202,20 @@ fn test_invalid_bitrate() {
 }
 
 #[test]
+fn test_dry_blend_range() {
+    let bad_blends = [-1.0_f32, -0.01, 1.01, 2.0, 10.0];
+    for &blend in &bad_blends {
+        let is_valid = (0.0..=1.0).contains(&blend);
+        assert!(!is_valid, "dry-blend {} debería ser inválido", blend);
+    }
+    let good_blends = [0.0_f32, 0.05, 0.1, 0.25, 0.5, 1.0];
+    for &blend in &good_blends {
+        let is_valid = (0.0..=1.0).contains(&blend);
+        assert!(is_valid, "dry-blend {} debería ser válido", blend);
+    }
+}
+
+#[test]
 fn test_output_name_lot_multi_error() {
     let cwd = Path::new("/workspace");
     let inputs = vec![
