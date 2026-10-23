@@ -14,13 +14,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Extensiones de video soportadas (case-insensitive).
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi"];
+pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi"];
+
+/// Extensiones de audio soportadas (case-insensitive).
+pub const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"];
 
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "denoise",
     version = env!("CARGO_PKG_VERSION"),
- about = "CLI autocontenido denoise v1 — elimina ruido de video con DPDFNet ONNX",
+ about = "CLI autocontenido denoise v1 — elimina ruido de audio y video con DPDFNet ONNX",
     override_usage = "denoise INPUT... [--output-name NAME] [--output-dir DIR] [--prefix STR] [--suffix STR]\n  [--recursive] [--overwrite | --skip-existing]\n  [--audio-bitrate KBPS] [--model-dir DIR] [--ffmpeg-path PATH]\n  [--dry-run] [--json] [--verbose] [--version]",
     disable_version_flag = true
 )]
@@ -57,7 +60,7 @@ pub struct Cli {
     #[arg(long = "skip-existing", conflicts_with = "overwrite")]
     pub skip_existing: bool,
 
-    /// Bitrate de audio AAC de salida en kbps (64-320, defecto: 192)
+    /// Bitrate del audio de salida en kbps (64-320, defecto: 192); AAC en video, códec con pérdida en audio
     #[arg(long = "audio-bitrate", default_value = "192")]
     pub audio_bitrate: u32,
 
@@ -189,15 +192,43 @@ pub fn dedup_key(path: &Path) -> String {
     }
 }
 
-/// Comprueba si la extensión del archivo es soportada.
-pub fn is_supported_video(path: &Path) -> bool {
+fn has_extension(path: &Path, extensions: &[&str]) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| {
             let ext_lower = ext.to_lowercase();
-            SUPPORTED_EXTENSIONS.contains(&ext_lower.as_str())
+            extensions.contains(&ext_lower.as_str())
         })
         .unwrap_or(false)
+}
+
+/// Comprueba si la extensión del archivo es de video soportado.
+pub fn is_video(path: &Path) -> bool {
+    has_extension(path, VIDEO_EXTENSIONS)
+}
+
+/// Comprueba si la extensión del archivo es de audio soportado.
+pub fn is_audio(path: &Path) -> bool {
+    has_extension(path, AUDIO_EXTENSIONS)
+}
+
+/// Comprueba si la extensión del archivo pertenece a un medio soportado (video o audio).
+pub fn is_supported_media(path: &Path) -> bool {
+    is_video(path) || is_audio(path)
+}
+
+/// Extensión de salida por defecto para un medio: `.mp4` para video y la
+/// extensión original (normalizada a minúsculas) para audio.
+fn default_output_extension(input: &Path) -> String {
+    if is_video(input) {
+        "mp4".to_string()
+    } else {
+        input
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .unwrap_or_else(|| "wav".to_string())
+    }
 }
 
 /// Valida los caracteres permitidos en prefijos y sufijos: `[A-Za-z0-9._-]` y no `.` ni `..` exactos.
@@ -235,7 +266,7 @@ pub fn expand_inputs(
     let mut seen = HashSet::new();
 
     let norm_out_dir = output_dir.map(|od| normalize_lexical(od, cwd));
-    let suffix_filter = format!("{}.mp4", suffix.to_lowercase());
+    let suffix_filter = suffix.to_lowercase();
 
     for input in inputs {
         let norm_input = normalize_lexical(input, cwd);
@@ -261,11 +292,12 @@ pub fn expand_inputs(
                 }
             }
         } else if norm_input.is_file() {
-            if !is_supported_video(&norm_input) {
+            if !is_supported_media(&norm_input) {
                 return Err(E::EInvalidInput(format!(
-                    "Extensión no soportada para '{}'. Soportadas: {:?}",
+                    "Extensión no soportada para '{}'. Video: {:?}; audio: {:?}",
                     input.display(),
-                    SUPPORTED_EXTENSIONS
+                    VIDEO_EXTENSIONS,
+                    AUDIO_EXTENSIONS
                 )));
             }
             let key = dedup_key(&norm_input);
@@ -282,7 +314,7 @@ pub fn expand_inputs(
 
     if collected.is_empty() {
         return Err(E::EInvalidInput(
-            "Lote vacío sin videos soportados".to_string(),
+            "Lote vacío sin archivos de medios soportados".to_string(),
         ));
     }
 
@@ -321,15 +353,15 @@ fn collect_dir_entries(
             if recursive {
                 collect_dir_entries(&path, recursive, norm_out_dir, suffix_filter, verbose, out)?;
             }
-        } else if path.is_file() && is_supported_video(&path) {
-            // Excluir *<suffix>.mp4 en escaneos recursivos
-            if recursive {
-                let fname = path
-                    .file_name()
+        } else if path.is_file() && is_supported_media(&path) {
+            // Excluir en escaneos recursivos cualquier medio cuyo stem ya termine en el sufijo.
+            if recursive && !suffix_filter.is_empty() {
+                let stem = path
+                    .file_stem()
                     .and_then(|n| n.to_str())
                     .unwrap_or("")
                     .to_lowercase();
-                if fname.ends_with(suffix_filter) {
+                if stem.ends_with(suffix_filter) {
                     if verbose {
                         eprintln!(
                             "[verbose] Excluyendo archivo ya procesado (*{}): {}",
@@ -372,16 +404,22 @@ pub fn resolve_outputs(
     if let Some(name) = output_name {
         if expanded.len() > 1 {
             return Err(E::EInvalidInput(
-                "--output-name solo se permite cuando el lote expandido tiene exactamente 1 video"
+                "--output-name solo se permite cuando el lote expandido tiene exactamente 1 archivo de medio"
                     .to_string(),
             ));
         }
 
         let input = &expanded[0];
-        let mut final_name = name.to_string();
-        if !final_name.to_lowercase().ends_with(".mp4") {
-            final_name.push_str(".mp4");
-        }
+        let base_ext = default_output_extension(input);
+        let final_name = match Path::new(name).extension().and_then(|ext| ext.to_str()) {
+            Some(ext)
+                if VIDEO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
+                    || AUDIO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) =>
+            {
+                name.to_string()
+            }
+            _ => format!("{}.{}", name, base_ext),
+        };
 
         let target_dir = match output_dir {
             Some(od) => normalize_lexical(od, cwd),
@@ -418,8 +456,9 @@ pub fn resolve_outputs(
         let stem = input
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("video");
-        let filename = format!("{}{}{}.mp4", pfx, stem, sfx);
+            .unwrap_or("media");
+        let ext = default_output_extension(input);
+        let filename = format!("{}{}{}.{}", pfx, stem, sfx, ext);
 
         let out_dir = match output_dir {
             Some(od) => {
@@ -453,7 +492,7 @@ pub fn resolve_outputs(
         if used_outputs.contains(&key) {
             let mut counter = 1;
             loop {
-                let adjusted_filename = format!("{}{}{}_{}.mp4", pfx, stem, sfx, counter);
+                let adjusted_filename = format!("{}{}{}_{}.{}", pfx, stem, sfx, counter, ext);
                 let alt_path = out_dir.join(&adjusted_filename);
                 let alt_key = dedup_key(&alt_path);
                 if !used_outputs.contains(&alt_key) {
@@ -781,7 +820,7 @@ pub fn process_batch(items: &[ResolvedItem], params: &BatchParams) -> i32 {
             cancel_flag: cancel_flag_clone,
         };
 
-        let result = crate::pipeline::clean_one_video(&pipe_params, |pct, msg| {
+        let result = crate::pipeline::clean_media(&pipe_params, |pct, msg| {
             if params.json_mode {
                 let line = JsonLogLine {
                     input: in_str.clone(),

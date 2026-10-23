@@ -4,7 +4,8 @@
 //! Todos estos tests son puros (sin ffmpeg ni red ni modelo ONNX).
 
 use denoise::cli::{
-    expand_inputs, is_supported_video, normalize_lexical, resolve_outputs, validate_affix,
+    expand_inputs, is_audio, is_supported_media, is_video, normalize_lexical, resolve_outputs,
+    validate_affix,
 };
 use denoise::errors::E;
 use std::fs::{self, File};
@@ -269,6 +270,7 @@ fn test_expansion_and_recursive_tree() {
     File::create(tmp_dir.join("sub1/nested.mov")).unwrap();
     File::create(tmp_dir.join("sub1/sub2/deep.mkv")).unwrap();
     File::create(tmp_dir.join("sub1/already_denoised.mp4")).unwrap(); // excluido
+    File::create(tmp_dir.join("sub1/voice_denoised.wav")).unwrap(); // excluido sin importar extensión
     File::create(tmp_dir.join("out_nested/skip_me.mp4")).unwrap(); // Excluido si out_dir
 
     let out_dir = tmp_dir.join("out_nested");
@@ -292,6 +294,7 @@ fn test_expansion_and_recursive_tree() {
     assert!(filenames.contains(&"deep.mkv".to_string()));
     // Verificamos exclusiones de ya-procesados y output-dir anidado
     assert!(!filenames.contains(&"already_denoised.mp4".to_string()));
+    assert!(!filenames.contains(&"voice_denoised.wav".to_string()));
     assert!(!filenames.contains(&"skip_me.mp4".to_string()));
 
     // recrear árbol relativo a cwd
@@ -321,13 +324,90 @@ fn test_expansion_and_recursive_tree() {
 }
 
 #[test]
-fn test_is_supported_video() {
-    assert!(is_supported_video(Path::new("file.MP4")));
-    assert!(is_supported_video(Path::new("file.mov")));
-    assert!(is_supported_video(Path::new("file.mkv")));
-    assert!(is_supported_video(Path::new("file.webm")));
-    assert!(is_supported_video(Path::new("file.avi")));
-    assert!(!is_supported_video(Path::new("file.txt")));
-    assert!(!is_supported_video(Path::new("file.wav")));
-    assert!(!is_supported_video(Path::new("file")));
+fn test_is_supported_media() {
+    // Video soportado
+    assert!(is_supported_media(Path::new("file.MP4")));
+    assert!(is_supported_media(Path::new("file.mov")));
+    assert!(is_supported_media(Path::new("file.mkv")));
+    assert!(is_supported_media(Path::new("file.webm")));
+    assert!(is_supported_media(Path::new("file.avi")));
+    // Audio soportado
+    assert!(is_supported_media(Path::new("file.wav")));
+    assert!(is_supported_media(Path::new("file.mp3")));
+    assert!(is_supported_media(Path::new("file.m4a")));
+    assert!(is_supported_media(Path::new("file.aac")));
+    assert!(is_supported_media(Path::new("file.FLAC")));
+    assert!(is_supported_media(Path::new("file.ogg")));
+    assert!(is_supported_media(Path::new("file.opus")));
+    // No soportado
+    assert!(!is_supported_media(Path::new("file.txt")));
+    assert!(!is_supported_media(Path::new("file.pdf")));
+    assert!(!is_supported_media(Path::new("file")));
+    // Clasificación directa
+    assert!(is_video(Path::new("file.mp4")));
+    assert!(!is_video(Path::new("file.wav")));
+    assert!(is_audio(Path::new("file.wav")));
+    assert!(!is_audio(Path::new("file.mp4")));
+}
+
+#[test]
+fn test_naming_audio_default_keeps_extension() {
+    let cwd = Path::new("/workspace");
+    let cases = [
+        ("take.wav", "take_denoised.wav"),
+        ("song.flac", "song_denoised.flac"),
+    ];
+
+    for (input_name, expected_name) in cases {
+        let input = PathBuf::from(format!("/workspace/{}", input_name));
+        let resolved = resolve_outputs(
+            std::slice::from_ref(&input),
+            None,
+            None,
+            None,
+            None,
+            false,
+            cwd,
+            false,
+        )
+        .expect("Resolución por defecto de audio");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].output,
+            PathBuf::from(format!("/workspace/{}", expected_name))
+        );
+    }
+}
+
+#[test]
+fn test_naming_audio_output_name_with_and_without_extension() {
+    let cwd = Path::new("/workspace");
+    let input = PathBuf::from("/workspace/take.wav");
+
+    let without_ext = resolve_outputs(
+        std::slice::from_ref(&input),
+        Some("final"),
+        None,
+        None,
+        None,
+        false,
+        cwd,
+        false,
+    )
+    .expect("output-name sin extensión sobre audio");
+    assert_eq!(without_ext[0].output, PathBuf::from("/workspace/final.wav"));
+
+    let with_ext = resolve_outputs(
+        std::slice::from_ref(&input),
+        Some("final.mp3"),
+        None,
+        None,
+        None,
+        false,
+        cwd,
+        false,
+    )
+    .expect("output-name con extensión soportada sobre audio");
+    assert_eq!(with_ext[0].output, PathBuf::from("/workspace/final.mp3"));
 }

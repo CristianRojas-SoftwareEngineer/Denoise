@@ -1,11 +1,13 @@
-//! Módulo `pipeline.rs` — Orquestación del pipeline completo por video.
+//! Módulo `pipeline.rs` — Orquestación del pipeline completo por medio (video o audio).
 //!
 //! Contrato: `docs/design.md §5, §8`.
 //! Especificaciones: `docs/specifications.md §2 RF-05, RF-08, RF-09 y §3 RNF-03, RNF-06`.
 
 use crate::df::denoise_wav_with_params;
 use crate::errors::E;
-use crate::ffmpeg_io::{extract_audio48k, probe, remux_copy, verify_output_lightweight};
+use crate::ffmpeg_io::{
+    egress_media, extract_audio48k, probe, verify_output_lightweight, MediaKind,
+};
 use crate::models::ModelsProvider;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +21,7 @@ pub enum ProcessStatus {
     Skipped,
 }
 
-/// Parámetros para procesar un video individual.
+/// Parámetros para procesar un medio individual.
 pub struct PipelineParams<'a> {
     pub ffmpeg: &'a Path,
     pub input: &'a Path,
@@ -76,16 +78,16 @@ impl Drop for TempCleaner {
     }
 }
 
-/// Procesa un único archivo de video de principio a fin según el contrato §5.
+/// Procesa un único archivo de medio de principio a fin según el contrato §5.
 ///
 /// Progreso:
 /// - 0: Inicio / colisión-check
 /// - 1-5%: Extracción de audio ffmpeg
 /// - 6-80%: Denoise DPDFNet secuencial
-/// - 81-95%: Remux ffmpeg a `.part.mp4` + atomic rename
+/// - 81-95%: Egresión ffmpeg a `<output_stem>.part.<ext>` + atomic rename
 /// - 96-99%: Verificación ligera
 /// - 100%: Completado
-pub fn clean_one_video<F>(params: &PipelineParams, progress_cb: F) -> Result<ProcessStatus, E>
+pub fn clean_media<F>(params: &PipelineParams, progress_cb: F) -> Result<ProcessStatus, E>
 where
     F: Fn(u32, &str),
 {
@@ -129,12 +131,22 @@ where
         .models_provider
         .ensure_models(params.model_dir, &|_, _| {})?;
 
-    // Rutas de temporales junto a la salida
+    // Rutas de temporales junto a la salida; el parcial conserva stem y extensión finales.
     let out_file_name = params
         .output
         .file_name()
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_else(|| "out.mp4".to_string());
+    let out_stem = params
+        .output
+        .file_stem()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "out".to_string());
+    let out_ext = params
+        .output
+        .extension()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "mp4".to_string());
 
     let tmp_in_wav = params
         .output
@@ -142,14 +154,14 @@ where
     let tmp_out_wav = params
         .output
         .with_file_name(format!("{}.tmp.out.wav", out_file_name));
-    let out_part_mp4 = params
+    let out_part = params
         .output
-        .with_file_name(format!("{}.part.mp4", out_file_name));
+        .with_file_name(format!("{}.part.{}", out_stem, out_ext));
 
     let mut cleaner = TempCleaner::new(params.verbose);
     cleaner.track(tmp_in_wav.clone());
     cleaner.track(tmp_out_wav.clone());
-    cleaner.track(out_part_mp4.clone());
+    cleaner.track(out_part.clone());
 
     // 1-5%: Extracción de audio 48k PCM16 (mono o estéreo según flag y contenedor)
     progress_cb(1, "extrayendo audio");
@@ -193,26 +205,47 @@ where
         }
     }
 
-    // 81-95%: Remux video + clean audio a.part.mp4
-    progress_cb(81, "remuxando video");
-    remux_copy(
+    // 81-95%: Egresión especializada según MediaKind a `<out_stem>.part.<ext>`
+    let is_video = probe_res.media_kind == MediaKind::Video;
+    progress_cb(
+        81,
+        if is_video {
+            "remuxando video"
+        } else {
+            "empaquetando audio"
+        },
+    );
+    egress_media(
         params.ffmpeg,
+        probe_res.media_kind,
         params.input,
         &tmp_out_wav,
-        &out_part_mp4,
+        &out_part,
         params.audio_bitrate,
         probe_res.duration,
         params.target_lufs,
     )?;
-    progress_cb(90, "remux completado");
+    progress_cb(
+        90,
+        if is_video {
+            "remux completado"
+        } else {
+            "audio empaquetado"
+        },
+    );
 
-    // Rename atómico a OUT.mp4
-    fs::rename(&out_part_mp4, params.output).map_err(E::EIo)?;
+    // Rename atómico al archivo final
+    fs::rename(&out_part, params.output).map_err(E::EIo)?;
     progress_cb(95, "archivo renombrado");
 
-    // 96-99%: Verificación ligera runtime
+    // 96-99%: Verificación ligera runtime adaptada al medio
     progress_cb(96, "verificando salida");
-    let verified = verify_output_lightweight(params.ffmpeg, params.output, probe_res.duration)?;
+    let verified = verify_output_lightweight(
+        params.ffmpeg,
+        params.output,
+        probe_res.duration,
+        probe_res.media_kind,
+    )?;
     if !verified {
         return Err(E::EFfmpegFailed(format!(
             "Verificación ligera falló para {}",

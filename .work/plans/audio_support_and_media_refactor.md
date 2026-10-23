@@ -1,7 +1,7 @@
 # Plan Canónico de Arquitectura e Implementación: Soporte Integral de Medios (Audio y Video) y Refactorización del Pipeline
 
 > **Ubicación canónica:** `.work/plans/audio_support_and_media_refactor.md`  
-> **Estado del Plan:** Aprobado para ejecución  
+> **Estado del Plan:** Ejecutado y verificado (2026-10-23)  
 > **Ámbito:** `Denoise/` (CLI, librerías Rust, tests y documentación)  
 > **Principio Rector:** **Cero deuda técnica y cero retrocompatibilidad innecesaria.** Dado que el producto se encuentra en fase activa de desarrollo y sin usuarios finales externos dependientes de contratos legacy, se aplica una refactorización de raíz que sustituye nombres obsoletos, elimina alias redundantes y unifica el modelo mental sin crear shims temporales.
 
@@ -82,7 +82,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
 ### Fase 1: Abstracción Canónica en `src/ffmpeg_io.rs`
 
 - **Tarea 1.1: Definir `MediaKind`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:** Declarar el enum público:
     ```rust
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +94,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
   - **Archivos:** `src/ffmpeg_io.rs`, re-exportado en `src/lib.rs`.
 
 - **Tarea 1.2: Refactorizar `ProbeResult` y `probe()`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Agregar campo `pub media_kind: MediaKind` a `ProbeResult`.
     - Eliminar la validación que lanzaba error para entradas de solo-audio.
@@ -105,7 +105,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
   - **Archivos:** `src/ffmpeg_io.rs`.
 
 - **Tarea 1.3: Implementar `encode_audio()` y renombrar `remux_copy` a `remux_video`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Renombrar `remux_copy()` $\rightarrow$ `remux_video()` con parámetros claros.
     - Implementar `encode_audio(ffmpeg, input, clean_wav, out_part, audio_bitrate, target_lufs)` aplicando la matriz de códecs según la extensión del archivo de salida y pasando metadatos del input con `-map_metadata 0`.
@@ -113,7 +113,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
   - **Archivos:** `src/ffmpeg_io.rs`.
 
 - **Tarea 1.4: Refactorizar `verify_output_lightweight()` y eliminar alias duplicado**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Modificar firma: `pub fn verify_output_lightweight(ffmpeg: &Path, out_file: &Path, expected_dur: f64, kind: MediaKind) -> Result<bool, E>`.
     - Si `kind == MediaKind::Audio`, omitir comprobación de stream de video y validar exclusivamente stream de audio y duración $\pm0.5\,\text{s}$.
@@ -125,7 +125,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
 ### Fase 2: Generalización y Limpieza de la CLI en `src/cli.rs`
 
 - **Tarea 2.1: Definir listas de extensiones canónicas**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     ```rust
     pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi"];
@@ -135,7 +135,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
   - **Archivos:** `src/cli.rs`.
 
 - **Tarea 2.2: Actualizar mensajes de usuario y metadata de `clap`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - `about = "CLI autocontenido denoise v1 — elimina ruido de audio y video con DPDFNet ONNX"`.
     - Mensajes de error: Cambiar `"Lote vacío sin videos soportados"` $\rightarrow$ `"Lote vacío sin archivos de medios soportados"`.
@@ -144,14 +144,14 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
   - **Archivos:** `src/cli.rs`.
 
 - **Tarea 2.3: Desacoplar filtro de exclusión recursiva en `collect_dir_entries()`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Eliminar la concatenación rígida `format!("{}.mp4", suffix)`.
     - Evaluar la exclusión comprobando si `path.file_stem()` termina con el `suffix` (ej. `_denoised`) y la extensión es soportada. Esto previene automáticamente el re-procesamiento de cualquier video o audio ya procesado.
   - **Archivos:** `src/cli.rs`.
 
 - **Tarea 2.4: Refactorizar `resolve_outputs()` con simetría de formatos**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Determinar la extensión de salida:
       - Si la entrada es video soportado $\rightarrow$ extensión `.mp4`.
@@ -166,14 +166,14 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
 ### Fase 3: Unificación del Pipeline en `src/pipeline.rs`
 
 - **Tarea 3.1: Renombrar función principal a `clean_media`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Renombrar `clean_one_video` $\rightarrow$ `clean_media` (sin wrappers legacy).
     - Actualizar llamadas en `src/cli.rs` y módulos asociados.
   - **Archivos:** `src/pipeline.rs`, `src/cli.rs`, `src/lib.rs`.
 
 - **Tarea 3.2: Generación dinámica de temporales y mensajes adaptativos**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - En lugar de hardcodear `.part.mp4`, generar el temporal de egresión usando el nombre y extensión final de salida: `<output_stem>.part.<ext>`.
     - Mensajes de progreso: `progress_cb(81, "remuxando video")` para video, `progress_cb(81, "empaquetando audio")` para audio.
@@ -186,7 +186,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
 ### Fase 4: Refactorización y Expansión de Tests en `tests/`
 
 - **Tarea 4.1: Adaptar tests existentes en `tests/test_naming.rs`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Reemplazar imports y usos de `is_supported_video` por `is_supported_media`.
     - Actualizar `test_is_supported_video`: renombrar a `test_is_supported_media` y verificar que `.wav`, `.mp3`, `.flac`, etc. ahora son válidos (`true`), mientras que `.txt` o `.pdf` son `false`.
@@ -195,13 +195,13 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
   - **Archivos:** `tests/test_naming.rs`.
 
 - **Tarea 4.2: Adaptar test de solo-audio en `tests/test_errors.rs`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - En `tests/test_errors.rs`, la prueba que antes forzaba que una pista de solo audio fallara (`test_invalid_input_error`) debe actualizarse: verificar que un archivo sin streams (`has_video == false && has_audio == false`) o corrupto falle con `E_INVALID_INPUT`, mientras que un archivo de audio válido sea aceptado.
   - **Archivos:** `tests/test_errors.rs`.
 
 - **Tarea 4.3: Crear `tests/test_audio_pipeline.rs` (Test E2E de Audio)**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Crear test de integración que procese un archivo de audio real (`tests/data/voz_noisy.wav`) a través de `clean_media` con `FakeProvider`.
     - Verificar que el WAV de salida existe, es legible por `hound`, tiene duración correcta y no generó archivos `.part` o temporales huérfanos.
@@ -212,7 +212,7 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
 ### Fase 5: Actualización Contractual de Documentación
 
 - **Tarea 5.1: Actualizar `docs/design.md`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Actualizar §1 (Objetivo: Video y Audio), §4 (Contrato CLI) y §5 (Pipeline por medio).
     - Describir `MediaKind` y la egresión polimórfica.
@@ -220,21 +220,21 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
   - **Archivos:** `docs/design.md`.
 
 - **Tarea 5.2: Actualizar `docs/specifications.md`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Actualizar RF-01, RF-02, RF-03 y RF-07 reflejando el soporte universal de medios.
     - Asegurar paridad exacta TOC $\leftrightarrow$ encabezados.
   - **Archivos:** `docs/specifications.md`.
 
 - **Tarea 5.3: Actualizar `README.md`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Actualizar el encabezado y características principales (resaltando soporte directo para podcasts, locuciones y pistas de audio).
     - Añadir ejemplos CLI con archivos `.wav` y `.mp3`.
   - **Archivos:** `README.md`.
 
 - **Tarea 5.4: Registrar en `CHANGELOG.md`**
-  - **Estado:** Pendiente
+  - **Estado:** Completado
   - **Acción:**
     - Registrar bajo `[Unreleased]` la refactorización arquitectónica de medios y el soporte nativo de archivos de audio.
   - **Archivos:** `CHANGELOG.md`.
@@ -245,11 +245,11 @@ El núcleo DSP ([src/df/mod.rs](file:///c:/Users/Cristian/Desktop/Proyectos/Voic
 
 Para considerar la implementación terminada y aprobada:
 
-1. [ ] `cargo build --release` finaliza exitosamente.
-2. [ ] `cargo clippy --all-targets -- -D warnings` arroja **0 warnings**.
-3. [ ] `cargo test --release` ejecuta y pasa todos los tests unitarios y de integración.
-4. [ ] `python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all` pasa con éxito la puerta de calidad DSP.
-5. [ ] Verificación de prueba manual:
+1. [x] `cargo build --release` finaliza exitosamente.
+2. [x] `cargo clippy --all-targets -- -D warnings` arroja **0 warnings**.
+3. [x] `cargo test --release` ejecuta y pasa todos los tests unitarios y de integración.
+4. [x] `python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all` pasa con éxito la puerta de calidad DSP.
+5. [x] Verificación de prueba manual:
    ```bash
    target/release/denoise tests/data/voz_noisy.wav --output-name out_test.wav
    ```

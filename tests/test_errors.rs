@@ -5,7 +5,7 @@
 
 use denoise::cli::{expand_inputs, resolve_outputs, run_dry_run, ResolvedItem};
 use denoise::errors::E;
-use denoise::ffmpeg_io::{find_ffmpeg, probe};
+use denoise::ffmpeg_io::{find_ffmpeg, probe, MediaKind};
 use denoise::models::{FakeProvider, ModelsProvider};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -79,7 +79,27 @@ fn test_invalid_input_error() {
     assert!(res_unsupp.is_err());
     assert_eq!(res_unsupp.unwrap_err().exit_code(), 2);
 
-    // 4. Solo audio renombrado a .mp4
+    // 4. Archivo corrupto (sin streams de medios) con extensión soportada
+    let corrupt = tmp_dir.join("corrupt.mp4");
+    fs::write(&corrupt, b"esto no es un contenedor de medios").unwrap();
+    let res_corrupt = probe(&ffmpeg, &corrupt);
+    assert!(res_corrupt.is_err());
+    match res_corrupt.unwrap_err() {
+        E::EInvalidInput(_) => {}
+        err => panic!("Esperado EInvalidInput para corrupto, obtenido: {:?}", err),
+    }
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_audio_only_input_accepted() {
+    let ffmpeg = get_real_ffmpeg();
+    let tmp_dir = std::env::temp_dir().join("denoise_err_audio_only");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    // Solo audio es una entrada válida y se clasifica como MediaKind::Audio
     let audio_only = tmp_dir.join("audio.mp4");
     let status = Command::new(&ffmpeg)
         .arg("-y")
@@ -96,15 +116,11 @@ fn test_invalid_input_error() {
         .expect("Generar solo-audio");
     assert!(status.success());
 
-    let res_audio = probe(&ffmpeg, &audio_only);
-    assert!(res_audio.is_err());
-    match res_audio.unwrap_err() {
-        E::EInvalidInput(_) => {}
-        err => panic!(
-            "Esperado EInvalidInput para solo-audio, obtenido: {:?}",
-            err
-        ),
-    }
+    let res_audio =
+        probe(&ffmpeg, &audio_only).expect("Un archivo de solo audio debe ser aceptado");
+    assert!(!res_audio.has_video);
+    assert!(res_audio.has_audio);
+    assert_eq!(res_audio.media_kind, MediaKind::Audio);
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }

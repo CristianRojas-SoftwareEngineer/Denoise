@@ -5,7 +5,7 @@
 ```bash
 cargo build --release
 cargo clippy --all-targets -- -D warnings   # 0 warnings
-cargo test --release                          # verde canónico: 33 passed / 5 ignored
+cargo test --release                          # verde canónico: 44 passed / 6 ignored
 python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all
 ```
 

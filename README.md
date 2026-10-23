@@ -1,19 +1,19 @@
-# denoise — Video Speech Enhancement & Noise Removal CLI
+# denoise — Video & Audio Speech Enhancement & Noise Removal CLI
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust: 1.88+](https://img.shields.io/badge/Rust-1.88%2B-orange.svg)](https://www.rust-lang.org/)
 [![Release: v1.0.0](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/CristianRojas-SoftwareEngineer/Denoise/releases/tag/v1.0.0)
 
-**`denoise`** es una herramienta de línea de comandos de alto rendimiento, autocontenida y multiplataforma escrita en **Rust**, diseñada para suprimir ruido de fondo y maximizar la inteligibilidad de la voz en grabaciones de video mediante redes neuronales profundas (**DPDFNet ONNX** + **ONNX Runtime CPU**).
+**`denoise`** es una herramienta de línea de comandos de alto rendimiento, autocontenida y multiplataforma escrita en **Rust**, diseñada para suprimir ruido de fondo y maximizar la inteligibilidad de la voz en grabaciones de **video y audio** (podcasts, locuciones, entrevistas) mediante redes neuronales profundas (**DPDFNet ONNX** + **ONNX Runtime CPU**).
 
 > [!NOTE]
-> **Cero Pérdida de Calidad de Video**: El procesamiento de video utiliza copia de flujo directa (*stream copy*, `-c:v copy`). La resolución, tasa de cuadros (fps), perfil de color y compresión de video original permanecen 100% inalterados.
+> **Cero Pérdida de Calidad de Video**: El procesamiento de video utiliza copia de flujo directa (*stream copy*, `-c:v copy`). La resolución, tasa de cuadros (fps), perfil de color y compresión de video original permanecen 100% inalterados. Para archivos de solo audio, la salida conserva su contenedor original (`.wav`, `.mp3`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`).
 
 ---
 
 ## 1. ⚡ Inicio Rápido (Quick Start)
 
-En menos de un minuto (tras la compilación en release) puedes tener la herramienta procesando tu primer video:
+En menos de un minuto (tras la compilación en release) puedes tener la herramienta procesando tu primer video o audio:
 
 ```bash
 # 1. Clonar el repositorio
@@ -23,9 +23,12 @@ cd Denoise
 # 2. Compilar binario optimizado
 cargo build --release
 
-# 3. Ejecutar denoise sobre un video
+# 3. Ejecutar denoise sobre un video o un audio
 ./target/release/denoise "screencast_demo.mp4"
 # Genera: screencast_demo_denoised.mp4
+
+./target/release/denoise "podcast_episodio_12.mp3"
+# Genera: podcast_episodio_12_denoised.mp3
 ```
 
 ### 1.1. Coste del primer uso
@@ -51,7 +54,7 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
    - [3.2. Instalación de FFmpeg por Sistema Operativo](#32-instalación-de-ffmpeg-por-sistema-operativo)
    - [3.3. Compilación desde Código Fuente](#33-compilación-desde-código-fuente)
 4. [📖 Guía de Uso y Ejemplos](#4--guía-de-uso-y-ejemplos)
-   - [4.1. Procesamiento de un Video Individual](#41-procesamiento-de-un-video-individual)
+   - [4.1. Procesamiento de un Video o Audio Individual](#41-procesamiento-de-un-video-o-audio-individual)
    - [4.2. Directorio y Nombre de Salida Personalizado](#42-directorio-y-nombre-de-salida-personalizado)
    - [4.3. Procesamiento por Lote con Prefijos y Bitrate de Audio](#43-procesamiento-por-lote-con-prefijos-y-bitrate-de-audio)
    - [4.4. Modo Recursivo para Cursos o Grabaciones Múltiples](#44-modo-recursivo-para-cursos-o-grabaciones-múltiples)
@@ -74,6 +77,7 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
 ## 2. ✨ Características Principales
 
 - 🎙️ **Denoise Neuronal de Última Generación**: Utiliza DPDFNet (`dpdfnet8_48khz_hr.onnx`, grafo único stateful a 48 kHz) para separar eficazmente voz humana de ruidos continuos o transitorios (ventiladores, tráfico, reverberación, tecleo). La voz sale con la escala exacta del modelo (×1.0); un gate de pausa atenúa −25 dB las zonas sin voz (ver [docs/design.md](docs/design.md) §6).
+- 🎧 **Soporte Nativo de Audio**: Procesa directamente `.wav`, `.mp3`, `.m4a`, `.aac`, `.flac`, `.ogg` y `.opus` sin necesidad de un contenedor de video, preservando la extensión y los metadatos del archivo original.
 - ⚡ **Stream Copy de Video Inalterado (`-c:v copy`)**: Sin recodificación de video, logrando tiempos de ejecución sumamente veloces y preservación visual idéntica al original.
 - 🎚️ **Sin Normalización Artificial**: No hay ganancia global ni limiter: la voz conserva la escala exacta del modelo (×1.0) y solo las pausas se atenúan con el gate de pausa (−25 dB), sin reescalar la señal.
 - 🔄 **Sincronización A/V Cuidadosa**: Manejo robusto de contenedores con *edit lists* (`-ignore_editlist 1`, solo en `mov/mp4/m4v/m4a/3gp/3g2/mj2`) para evitar cualquier desfase temporal entre video y audio procesado.
@@ -122,11 +126,17 @@ cargo install --path .
 
 ## 4. 📖 Guía de Uso y Ejemplos
 
-### 4.1. Procesamiento de un Video Individual
-Aplica reducción de ruido a un video individual. Por defecto, genera `<nombre>_denoised.mp4` en la misma carpeta:
+### 4.1. Procesamiento de un Video o Audio Individual
+Aplica reducción de ruido a un video (salida `.mp4` con el video intacto) o a un audio (salida con la misma extensión de entrada). Por defecto, genera `<nombre>_denoised.<ext>` en la misma carpeta:
 ```bash
 denoise "tutorial_screencast_01.mp4"
 # Salida: tutorial_screencast_01_denoised.mp4
+
+denoise "locucion_spot.wav"
+# Salida: locucion_spot_denoised.wav
+
+denoise "entrevista.mp3" --output-name "entrevista_limpia"
+# Salida: entrevista_limpia.mp3
 ```
 
 ### 4.2. Directorio y Nombre de Salida Personalizado
@@ -202,23 +212,23 @@ Uso: denoise [OPCIONES] <INPUT>...
 
 | Argumento / Opción | Tipo | Valor por Defecto | Descripción |
 |:--- |:--- |:--- |:--- |
-| `<INPUT>...` | Posicional | *(Obligatorio)* | Uno o más archivos de video o carpetas a procesar. |
+| `<INPUT>...` | Posicional | *(Obligatorio)* | Uno o más archivos de video (`mp4/mov/mkv/webm/avi`), de audio (`wav/mp3/m4a/aac/flac/ogg/opus`) o carpetas a procesar. |
 | `--output-dir <DIR>` | Opción | Junto al original | Directorio destino. Sin `--output-dir`: junto al original; con `--output-name` solo: `cwd`; con `--recursive`: recrea el árbol relativo a `cwd`. |
-| `-o`, `--output-name <NAME>` | Opción | `None` | Nombre base de salida (solo si el lote expandido == 1 video; `prefix`/`suffix` se ignoran; auto-añade `.mp4`; complementario con `--output-dir`). |
+| `-o`, `--output-name <NAME>` | Opción | `None` | Nombre de salida (solo si el lote expandido == 1 medio). Si `NAME` incluye una extensión soportada se respeta; si no, se añade `.mp4` para video o la extensión original para audio. `prefix`/`suffix` se ignoran; complementario con `--output-dir`. |
 | `--prefix <TEXT>` | Opción | `""` | Prefijo del archivo generado. Solo `[A-Za-z0-9._-]`, no `.`/`..`. |
 | `--suffix <TEXT>` | Opción | `"_denoised"` | Sufijo antes de la extensión. Mismas reglas que `--prefix`. |
-| `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio AAC de salida en kbps (rango 64-320) (ej: 128, 192, 256). |
+| `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio de salida en kbps (rango 64-320) (ej: 128, 192, 256). Aplica al AAC del video y a `.mp3/.m4a/.aac/.ogg/.opus`; `.wav`/`.flac` son sin pérdida. |
 | `--dry-blend <FACTOR>` | Opción | `0.0` | Mezcla opcional de señal original con la procesada (rango 0.0 a 1.0; 0.0 = salida 100% denoised). |
 | `--pause-gate-db <DB>` | Opción | `-25` | Nivel de atenuación en pausas sin voz en dB (rango -40 a 0; 0 desactiva el gate). |
 | `--highpass` | Flag | `false` | Activa filtro pasa-altos IIR a 70 Hz para eliminar rumble subgrave post-inferencia. |
 | `--normalize` | Flag | `false` | Normaliza la sonoridad del audio remuxado a -16.0 LUFS EBU R128 (estándar podcasts/web). |
 | `--target-lufs <LUFS>` | Opción | `None` | Nivel objetivo de sonoridad EBU R128 en LUFS (-36 a -12, ej: -16 podcasts/web, -23 broadcast). |
 | `--stereo` | Flag | `false` | Preserva audio estéreo de 2 canales procesando cada canal independientemente con DPDFNet. |
-| `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
+| `--recursive` | Flag | `false` | Búsqueda recursiva de medios al especificar directorios. |
 | `--overwrite` | Flag | `false` | Sobrescribe el destino si ya existe (excluyente con `--skip-existing`). Sin flags + destino existe → error `E_OUTPUT_EXISTS` (exit `2`). |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |
 | `--dry-run` | Flag | `false` | Simula el lote sin escribir nada ni invocar ffmpeg/modelo (`exit 0`, `pct=0`). |
-| `--verbose` | Flag | `false` | Muestra depuración detallada a `stderr` y conserva temporales (`.tmp.*.wav`, `.part.mp4`). |
+| `--verbose` | Flag | `false` | Muestra depuración detallada a `stderr` y conserva temporales (`.tmp.*.wav`, `.part.<ext>`). |
 | `--json` | Flag | `false` | Emite JSONL en streaming a `stdout` (líneas de progreso + línea final por archivo + resumen). |
 | `--ffmpeg-path <PATH>` | Opción | `None` (detectado en PATH) | Ruta explícita al ejecutable de `ffmpeg` (debe existir). |
 | `--model-dir <DIR>` | Opción | `~/.cache/denoise/models` | Directorio local de los modelos ONNX. |
@@ -247,10 +257,10 @@ Uso: denoise [OPCIONES] <INPUT>...
 
 - **Disposición de canales**: por defecto procesa la primera pista de audio convertida a mono 48 kHz. Para videos con audio estéreo de 2 canales, el flag `--stereo` permite preservar la imagen estéreo original procesando cada canal de forma dual independiente. Pistas de audio adicionales (3ª en adelante) no se conservan.
 - **Solo el primer stream de video**: se copia `0:v:0`; el resto de streams de video se descartan.
-- **Sin subtítulos ni metadatos**: los subtítulos, capítulos y metadatos del contenedor original **no** se copian a la salida.
-- **Procesamiento secuencial**: los videos de un lote se procesan uno a uno, sin paralelismo. La inferencia es CPU-only (no usa GPU).
+- **Metadatos por tipo de medio**: en video, los subtítulos, capítulos y metadatos del contenedor original **no** se copian a la salida; en audio comprimido se preservan los metadatos del contenedor original (`-map_metadata 0`), mientras `.wav` se escribe PCM16 directamente desde el WAV limpio del DSP.
+- **Procesamiento secuencial**: los medios de un lote se procesan uno a uno, sin paralelismo. La inferencia es CPU-only (no usa GPU).
 - **Normalización de sonoridad opcional**: por defecto no hay alteración de escala en el remux (la voz conserva la escala exacta del modelo y solo las pausas se atenúan a −25 dB). Si se desea un nivel homogéneo para podcasts o web, se puede activar con `--normalize` (-16 LUFS por defecto) o parametrizar con `--target-lufs <DB>`.
-- **Remux a MP4**: la salida es siempre `.mp4` (con stream copy del video), independientemente de la extensión del archivo de entrada.
+- **Contenedor de salida**: el video siempre se entrega como `.mp4` con stream copy; el audio conserva la extensión original (`.wav`, `.mp3`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`), salvo que `--output-name` indique otra extensión soportada.
 
 ---
 
@@ -260,7 +270,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 |:--- |:--- |:--- |:--- |
 | `E_FFMPEG_NOT_FOUND` | `1` | ffmpeg no está en el `PATH` o es anterior a 6.0 | Instálalo (ver [3. Instalación y Requisitos](#3--instalación-y-requisitos)) o usa `--ffmpeg-path`. Verifica con `ffmpeg -version`. |
 | `E_NO_AUDIO` | `2` | El vídeo no contiene ninguna pista de audio | Usa un vídeo con audio; no es un error de la herramienta. |
-| `E_INVALID_INPUT` | `2` | Ruta inexistente, archivo sin stream de vídeo (solo audio), archivo corrupto, extensión no soportada, `--output-name` con lote > 1, `prefix`+`suffix` vacíos en in-place, `--output-name` que resuelve a la propia entrada, o `--audio-bitrate` fuera de 64-320 | Corrige la entrada o los argumentos. Un vídeo sin pista de audio devuelve `E_NO_AUDIO`, no `E_INVALID_INPUT`. |
+| `E_INVALID_INPUT` | `2` | Ruta inexistente, archivo sin streams de audio/video, archivo corrupto, extensión no soportada, `--output-name` con lote > 1, `prefix`+`suffix` vacíos en in-place, `--output-name` que resuelve a la propia entrada, o `--audio-bitrate` fuera de 64-320 | Corrige la entrada o los argumentos. Un vídeo sin pista de audio devuelve `E_NO_AUDIO`; un archivo de solo audio es válido. |
 | `E_OUTPUT_EXISTS` | `2` | El archivo de salida ya existe y no se pasó `--overwrite` ni `--skip-existing` | Añade `--overwrite` para sustituir o `--skip-existing` para omitir. |
 | `E_MODEL_MISSING` | `1` | Fallo al descargar el modelo (red, timeout de 60 s o SHA-256 incorrecto tras 3 intentos) | Reintenta; si persiste, descarga el modelo manualmente y colócalo en `--model-dir`. Una descarga interrumpida no deja el modelo corrupto: el fichero parcial se descarta. |
 | `E_IO` | `1` | Permisos insuficientes, disco lleno (<50 MB para el modelo) o ruta no creable | Verifica permisos y espacio libre, o cambia `--output-dir` / `--model-dir`. |
@@ -268,7 +278,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 | Cancelación | `3` | Pulsaste `Ctrl+C` | Los temporales se limpian automáticamente. Relanza con `--skip-existing` para reanudar. |
 | Salida con cola muda | `0` | El audio limpio es más corto que el video | Comportamiento esperado: la duración de salida sigue la del contenedor de entrada. |
 
-Para depurar un caso concreto, añade `--verbose` (detalla en `stderr` las exclusiones del escaneo y las decisiones de nomenclatura, y conserva los temporales `.tmp.*.wav` / `.part.mp4` para inspeccionarlos) y usa `--dry-run` para validar el lote sin procesar.
+Para depurar un caso concreto, añade `--verbose` (detalla en `stderr` las exclusiones del escaneo y las decisiones de nomenclatura, y conserva los temporales `.tmp.*.wav` / `.part.<ext>` para inspeccionarlos) y usa `--dry-run` para validar el lote sin procesar.
 
 ---
 
@@ -276,14 +286,14 @@ Para depurar un caso concreto, añade `--verbose` (detalla en `stderr` las exclu
 
 ```mermaid
 flowchart LR
-  A["Video Original<br/>(MP4 / MOV / MKV / WEBM / AVI)"] --> B["FFmpeg Demux<br/>(PCM 48kHz Mono)"]
+  A["Medio Original<br/>(Video: MP4/MOV/MKV/WEBM/AVI<br/>Audio: WAV/MP3/M4A/AAC/FLAC/OGG/OPUS)"] --> B["FFmpeg Demux<br/>(PCM 48kHz Mono)"]
  B --> C["STFT<br/>(Ventana Vorbis 960)"]
  C --> D["DPDFNet ONNX<br/>(Grafo único stateful)"]
  D --> E["iSTFT Overlap-Add<br/>(Síntesis 48kHz)"]
   E --> E2["Gate de pausa<br/>(−25 dB sin voz)"]
-  E2 --> F["FFmpeg Remux<br/>(AAC + Video Copy)"]
+  E2 --> F["FFmpeg Egress<br/>(MediaKind::Video → AAC + Video Copy<br/>MediaKind::Audio → contenedor original)"]
   A -.->|Video Stream copy| F
-  F --> G["Video Procesado<br/>(Audio Limpio)"]
+  F --> G["Medio Procesado<br/>(Audio Limpio)"]
 ```
 
 1. **Demux y Extracción de Audio (`ffmpeg_io.rs`)**: FFmpeg extrae la primera pista de audio a WAV mono 48 kHz PCM16 (`-map 0:a:0 -vn -ac 1 -ar 48000`), que `df/mod.rs` lee como `i16` vía `hound` (`/32768.0`).
@@ -293,7 +303,7 @@ flowchart LR
  - Reconstruye la señal en el dominio del tiempo mediante iSTFT con síntesis *Overlap-Add* (réplica exacta de `knf::IStft` + recorte de 1920 muestras de sherpa-onnx).
  - Sin normalización ni limiter: la escala es la del modelo.
 5. **Gate de pausa (`df/mod.rs`)**: un VAD solo-salida sobre RMS de marcos de 30 ms (voz a ≥ pico−30 dB, salida con histéresis a ≤ pico−45 dB tras 3 marcos, hangover de 5) atenúa −25 dB las pausas con fundidos raised-cosine, justo antes de cuantizar a PCM16. Solo atenuación de no-voz: la voz queda multiplicada por 1.0 (sin ganancia, normalización global ni limiter; detalle en [docs/design.md](docs/design.md) §6).
-6. **Remux de Video sin Pérdida (`ffmpeg_io.rs`)**: FFmpeg reensambla el contenedor combinando el flujo original de video (`-c:v copy`) con la nueva pista de audio codificada en AAC al bitrate solicitado. La duración de la salida se toma de la duración del contenedor de entrada, por lo que si el audio limpio resultante es más corto que el video, los últimos milisegundos quedan en silencio (comportamiento esperado, no un error). El detalle exacto de los argumentos está en [docs/design.md](docs/design.md).
+6. **Egresión Polimórfica (`ffmpeg_io.rs`)**: `egress_media` despacha según `MediaKind`. En video, FFmpeg reensambla el contenedor combinando el flujo original de video (`-c:v copy`) con la nueva pista de audio codificada en AAC al bitrate solicitado; la duración de salida se toma del contenedor de entrada, por lo que si el audio limpio es más corto que el video, los últimos milisegundos quedan en silencio (comportamiento esperado, no un error). En audio, `encode_audio` transcodifica al códec del contenedor final preservando los metadatos del original. El detalle exacto de los argumentos está en [docs/design.md](docs/design.md).
 
 ---
 
@@ -318,10 +328,10 @@ Qué cubre cada nivel:
 | Nivel | Contenido |
 |:--- |:--- |
 | `cargo test` | `test_naming` (resolución de nombres, colisiones, recursión), `test_errors` (códigos de error con `FakeProvider`), `test_reporter` (orden y JSONL), `test_stft` (reconstrucción y delay) |
-| `cargo test --release -- --ignored` | `test_golden` (mejora ≥5 dB y paridad ≥60 dB frente a la referencia) y `test_remux` (stream copy y hash de vídeo) |
+| `cargo test --release -- --ignored` | `test_golden` (mejora ≥5 dB y paridad ≥60 dB frente a la referencia), `test_remux` (stream copy y hash de vídeo) y `test_audio_pipeline` (E2E WAV → WAV limpio con verificación de duración y limpieza de temporales) |
 
 > [!NOTE]
-> Estado tras el gate de pausa: `test_golden_3s`, `test_golden_65s` y `test_remux` están en verde con el umbral ≥60 dB sin relajar (paridades y detalle en [docs/design.md](docs/design.md) §6).
+> Estado tras el gate de pausa: `test_golden_3s`, `test_golden_65s`, `test_remux` y `test_audio_pipeline` están en verde con el umbral ≥60 dB sin relajar (paridades y detalle en [docs/design.md](docs/design.md) §6).
 
 Los vectores dorados son datos versionados en `tests/data/` y **no** se regeneran en CI. Para regenerar el par heredado se usa `cargo run --release --example gen_vectors -- <dir_eval>` con voz real del EvalSet de DPDFNet (requiere las fuentes `spanish_street_*`/`spanish_subway_*`, hoy no disponibles en esta máquina; además esa ruta recongelaría las referencias **con** el gate, así que la referencia del par 3 s pre-gate ya no se puede reproducir por ese camino). La referencia del par 65 s admite re-congelarse sin EvalSet con `examples/process_wav.rs` sobre `voz65s_noisy.wav` (detalle en `tests/data/README.md`):
 ```bash
@@ -356,8 +366,8 @@ El comando ejecuta el DSP sobre el set de clips y compara contra las líneas bas
 │ ├── main.rs # Punto de entrada de la aplicación
 │ ├── lib.rs # Exportación de módulos para biblioteca y tests
 │ ├── cli.rs # Definición de CLI con Clap y resolución de lotes
-│ ├── pipeline.rs # Orquestador del pipeline completo de video/audio
-│ ├── ffmpeg_io.rs # Invocación estructurada de FFmpeg (demux/remux/probe)
+│ ├── pipeline.rs # Orquestador `clean_media` del pipeline de video/audio
+│ ├── ffmpeg_io.rs # Invocación de FFmpeg (MediaKind, probe, demux, egresión)
 │ ├── models.rs # Descarga y verificación SHA-256 de modelos ONNX
 │ ├── errors.rs # Tipos de errores fuertemente tipados y códigos de salida
  │ └── df/ # Núcleo DSP y procesamiento DPDFNet

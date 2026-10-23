@@ -1,6 +1,6 @@
 target/
 *.tmp.*.wav
-*.part.mp4
+*.part.*
 out/
 limpios/
 *.log

@@ -1,12 +1,19 @@
-//! Módulo `ffmpeg_io.rs` — localización de ffmpeg, probe, extract, remux y verificación ligera.
+//! Módulo `ffmpeg_io.rs` — localización de ffmpeg, probe, extract, egresión de medios y verificación ligera.
 //!
 //! Contrato: `docs/design.md §5, §8`.
-//! Especificaciones: `docs/specifications.md §2 RF-05, RF-07`.
+//! Especificaciones: `docs/specifications.md §2 RF-02, RF-05, RF-07`.
 
 use crate::errors::E;
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Clasificación canónica del medio de entrada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Video,
+    Audio,
+}
 
 /// Resultado del análisis probe con ffmpeg.
 #[derive(Debug, Clone)]
@@ -15,6 +22,7 @@ pub struct ProbeResult {
     pub has_video: bool,
     pub duration: f64,
     pub channels: u16,
+    pub media_kind: MediaKind,
 }
 
 /// Encuentra `ffmpeg` en `--ffmpeg-path` o en PATH (usando `PATHEXT` en Windows).
@@ -73,6 +81,14 @@ pub fn verify_ffmpeg(ffmpeg: &Path) -> Result<String, E> {
         "No se pudo determinar versión de ffmpeg (se requiere 6+): {}. Instala ffmpeg 6+ vía winget/brew/apt.",
         first_line
     )))
+}
+
+/// Detecta un stream de video real: ignora las carátulas adjuntas (`attached pic`),
+/// que acompañan a algunos audios y no convierten el medio en video.
+fn has_real_video_stream(stderr: &str) -> bool {
+    stderr.lines().any(|line| {
+        line.contains("Video:") && !line.contains("attached pic") && !line.contains("attached_pic")
+    })
 }
 
 fn is_mov_mp4(path: &Path) -> bool {
@@ -134,7 +150,7 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
         0.0
     };
 
-    let has_video = stderr.contains("Video:");
+    let has_video = has_real_video_stream(&stderr);
     let has_audio = stderr.contains("Audio:");
 
     // validaciones probe
@@ -149,12 +165,11 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
         return Err(E::ENoAudio);
     }
 
-    if !has_video && has_audio {
-        return Err(E::EInvalidInput(format!(
-            "Entrada es solo audio, se requiere archivo de video: {}",
-            input.display()
-        )));
-    }
+    let media_kind = if has_video {
+        MediaKind::Video
+    } else {
+        MediaKind::Audio
+    };
 
     let channels = if has_audio {
         let re_chan = Regex::new(r"Audio:.*?(mono|stereo|(\d+)\s*channels?)").unwrap();
@@ -187,6 +202,7 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
         has_video,
         duration,
         channels,
+        media_kind,
     })
 }
 
@@ -241,11 +257,11 @@ pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<()
 
 /// Remuxa el video original con el audio procesado a AAC (con normalización loudnorm opcional):
 /// `ffmpeg -y -v error -i IN -i TMP.out.wav -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <bitrate>k [-af loudnorm=I=<target_lufs>:TP=-1.5:LRA=11] -t <dur_video> OUT.part.mp4`
-pub fn remux_copy(
+pub fn remux_video(
     ffmpeg: &Path,
     input_video: &Path,
     clean_wav: &Path,
-    out_part_mp4: &Path,
+    out_part: &Path,
     bitrate_kbps: u32,
     dur_video: f64,
     target_lufs: Option<f64>,
@@ -278,9 +294,7 @@ pub fn remux_copy(
             .arg(format!("loudnorm=I={:.1}:TP=-1.5:LRA=11", lufs));
     }
 
-    cmd.arg("-t")
-        .arg(&dur_str)
-        .arg(out_part_mp4);
+    cmd.arg("-t").arg(&dur_str).arg(out_part);
 
     let status = cmd
         .status()
@@ -289,19 +303,146 @@ pub fn remux_copy(
     if !status.success() {
         return Err(E::EFfmpegFailed(format!(
             "ffmpeg falló en remux para {}",
-            out_part_mp4.display()
+            out_part.display()
         )));
     }
 
     Ok(())
 }
 
-/// Verificación ligera runtime: OUT existe >0B + duración ±0.5s + Audio AAC presente.
-pub fn verify_output_lightweight(ffmpeg: &Path, out_mp4: &Path, expected_dur: f64) -> Result<bool, E> {
-    if !out_mp4.exists() {
+/// Devuelve el códec de audio de egresión según la extensión del archivo de salida.
+fn audio_codec_for(ext: &str) -> Option<&'static str> {
+    match ext {
+        "wav" => Some("pcm_s16le"),
+        "mp3" => Some("libmp3lame"),
+        "m4a" | "aac" | "mp4" | "mov" => Some("aac"),
+        "flac" => Some("flac"),
+        "ogg" => Some("libvorbis"),
+        "opus" => Some("libopus"),
+        _ => None,
+    }
+}
+
+/// Empaqueta el audio limpio preservando el contenedor pedido por la extensión
+/// de `out_part`, con metadatos del medio original cuando el contenedor lo permite.
+pub fn encode_audio(
+    ffmpeg: &Path,
+    input: &Path,
+    clean_wav: &Path,
+    out_part: &Path,
+    bitrate_kbps: u32,
+    target_lufs: Option<f64>,
+) -> Result<(), E> {
+    let ext = out_part
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let codec = audio_codec_for(&ext).ok_or_else(|| {
+        E::EInvalidInput(format!(
+            "Extensión de salida de audio no soportada: '{}'",
+            out_part.display()
+        ))
+    })?;
+
+    let mut cmd = Command::new(ffmpeg);
+    cmd.arg("-y").arg("-v").arg("error");
+
+    if ext == "wav" {
+        // Escritura PCM16 sin pérdida desde el WAV limpio del DSP.
+        cmd.arg("-i").arg(clean_wav);
+    } else {
+        // Se abre el medio original para heredar sus metadatos de contenedor.
+        if is_mov_mp4(input) {
+            cmd.arg("-ignore_editlist").arg("1");
+        }
+        cmd.arg("-i")
+            .arg(input)
+            .arg("-i")
+            .arg(clean_wav)
+            .arg("-map")
+            .arg("1:a:0")
+            .arg("-map_metadata")
+            .arg("0");
+    }
+
+    cmd.arg("-c:a").arg(codec);
+
+    // Bitrate solo aplica a códecs con pérdida; PCM16 y FLAC son sin pérdida.
+    if matches!(
+        ext.as_str(),
+        "mp3" | "m4a" | "aac" | "mp4" | "mov" | "ogg" | "opus"
+    ) {
+        cmd.arg("-b:a").arg(format!("{}k", bitrate_kbps));
+    }
+
+    if let Some(lufs) = target_lufs {
+        cmd.arg("-af")
+            .arg(format!("loudnorm=I={:.1}:TP=-1.5:LRA=11", lufs));
+    }
+
+    cmd.arg(out_part);
+
+    let status = cmd
+        .status()
+        .map_err(|e| E::EFfmpegFailed(format!("Fallo al ejecutar egresión de audio: {}", e)))?;
+
+    if !status.success() {
+        return Err(E::EFfmpegFailed(format!(
+            "ffmpeg falló al empaquetar audio para {}",
+            out_part.display()
+        )));
+    }
+
+    Ok(())
+}
+
+/// Orquesta la egresión según el tipo de medio de entrada.
+#[allow(clippy::too_many_arguments)]
+pub fn egress_media(
+    ffmpeg: &Path,
+    kind: MediaKind,
+    input: &Path,
+    clean_wav: &Path,
+    out_part: &Path,
+    bitrate_kbps: u32,
+    duration: f64,
+    target_lufs: Option<f64>,
+) -> Result<(), E> {
+    match kind {
+        MediaKind::Video => remux_video(
+            ffmpeg,
+            input,
+            clean_wav,
+            out_part,
+            bitrate_kbps,
+            duration,
+            target_lufs,
+        ),
+        MediaKind::Audio => encode_audio(
+            ffmpeg,
+            input,
+            clean_wav,
+            out_part,
+            bitrate_kbps,
+            target_lufs,
+        ),
+    }
+}
+
+/// Verificación ligera runtime: OUT existe >0B + duración ±0.5s + stream Audio presente.
+/// Solo exige stream de video cuando el medio es `MediaKind::Video`.
+pub fn verify_output_lightweight(
+    ffmpeg: &Path,
+    out_file: &Path,
+    expected_dur: f64,
+    kind: MediaKind,
+) -> Result<bool, E> {
+    if !out_file.exists() {
         return Ok(false);
     }
-    let meta = std::fs::metadata(out_mp4).map_err(E::EIo)?;
+    let meta = std::fs::metadata(out_file).map_err(E::EIo)?;
     if meta.len() == 0 {
         return Ok(false);
     }
@@ -309,12 +450,16 @@ pub fn verify_output_lightweight(ffmpeg: &Path, out_mp4: &Path, expected_dur: f6
     let output = Command::new(ffmpeg)
         .arg("-hide_banner")
         .arg("-i")
-        .arg(out_mp4)
+        .arg(out_file)
         .output()
         .map_err(|e| E::EFfmpegFailed(format!("Error verificando salida: {}", e)))?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stderr.contains("Audio:") {
+        return Ok(false);
+    }
+
+    if kind == MediaKind::Video && !stderr.contains("Video:") {
         return Ok(false);
     }
 
@@ -338,8 +483,19 @@ pub fn verify_output_lightweight(ffmpeg: &Path, out_mp4: &Path, expected_dur: f6
     Ok(true)
 }
 
-/// Alias para compatibilidad con contratos de documentación preexistentes.
-#[inline]
-pub fn verify_output_ligero(ffmpeg: &Path, out_mp4: &Path, expected_dur: f64) -> Result<bool, E> {
-    verify_output_lightweight(ffmpeg, out_mp4, expected_dur)
+#[cfg(test)]
+mod tests {
+    use super::has_real_video_stream;
+
+    #[test]
+    fn test_attached_picture_is_not_a_video_stream() {
+        let audio_with_cover = "  Stream #0:0: Audio: mp3, 48000 Hz, stereo\n  Stream #0:1: Video: mjpeg (attached pic), yuvj420p, 600x600";
+        assert!(!has_real_video_stream(audio_with_cover));
+
+        let audio_only = "  Stream #0:0: Audio: pcm_s16le, 48000 Hz, mono";
+        assert!(!has_real_video_stream(audio_only));
+
+        let real_video = "  Stream #0:0: Video: h264, yuv420p, 1920x1080\n  Stream #0:1: Audio: aac, 48000 Hz, stereo";
+        assert!(has_real_video_stream(real_video));
+    }
 }

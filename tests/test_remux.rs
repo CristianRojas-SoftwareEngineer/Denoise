@@ -3,7 +3,7 @@
 //! Ver `specifications.md RF-05B` y `design.md §10 punto 3`.
 //! Ejecutar con `cargo test -- --ignored`.
 
-use denoise::ffmpeg_io::{find_ffmpeg, probe, remux_copy, verify_output_lightweight};
+use denoise::ffmpeg_io::{find_ffmpeg, probe, remux_video, verify_output_lightweight, MediaKind};
 use hound::{WavSpec, WavWriter};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -84,7 +84,7 @@ fn extract_video_stream_hash(ffmpeg: &Path, video_path: &Path) -> Vec<u8> {
 
 #[test]
 #[ignore]
-fn test_remux_copy_video() {
+fn test_remux_video_copy() {
     let ffmpeg = find_ffmpeg(None).expect("ffmpeg disponible");
     let temp_dir = std::env::temp_dir();
     let fixture_path = temp_dir.join("test_remux_in.mp4");
@@ -100,7 +100,7 @@ fn test_remux_copy_video() {
 
     let in_hash = extract_video_stream_hash(&ffmpeg, &fixture_path);
 
-    remux_copy(
+    remux_video(
         &ffmpeg,
         &fixture_path,
         &clean_wav_path,
@@ -118,7 +118,8 @@ fn test_remux_copy_video() {
     );
 
     let verified =
-        verify_output_lightweight(&ffmpeg, &out_path, probe_in.duration).expect("Verificación ligera");
+        verify_output_lightweight(&ffmpeg, &out_path, probe_in.duration, MediaKind::Video)
+            .expect("Verificación ligera");
     assert!(
         verified,
         "La salida remuxada debe pasar la verificación ligera"
@@ -148,7 +149,7 @@ fn test_remux_duracion_contenedor() {
         "Duración de contenedor esperada ~4s"
     );
 
-    remux_copy(
+    remux_video(
         &ffmpeg,
         &fixture_path,
         &clean_wav_path,
@@ -189,7 +190,7 @@ fn test_remux_mov_mp4_editlist_sync() {
     denoise::ffmpeg_io::extract_mono48k(&ffmpeg, &fixture_path, &clean_wav_path)
         .expect("Extracción con ignore_editlist");
 
-    remux_copy(
+    remux_video(
         &ffmpeg,
         &fixture_path,
         &clean_wav_path,
@@ -201,7 +202,8 @@ fn test_remux_mov_mp4_editlist_sync() {
     .expect("Remux con ignore_editlist");
 
     let verified =
-        verify_output_lightweight(&ffmpeg, &out_path, probe_in.duration).expect("Verificación ligera");
+        verify_output_lightweight(&ffmpeg, &out_path, probe_in.duration, MediaKind::Video)
+            .expect("Verificación ligera");
     assert!(
         verified,
         "La salida remuxada debe pasar la verificación ligera"

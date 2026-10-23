@@ -6,6 +6,9 @@ pub mod ffmpeg_io;
 pub mod models;
 pub mod pipeline;
 
+// Re-exporta la abstracción canónica de medios.
+pub use ffmpeg_io::{MediaKind, ProbeResult};
+
 // Re-exporta el binario principal para `cargo run -- --help` equivalente.
 pub fn run() -> anyhow::Result<()> {
     cli::run()

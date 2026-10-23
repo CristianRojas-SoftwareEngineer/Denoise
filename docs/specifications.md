@@ -3,7 +3,7 @@
 > Este documento junto a `docs/design.md` forma el contrato canónico.
 > Convención de rutas: `docs/<fichero>` es relativo a la raíz del repo.
 > Idioma CLI y mensajes: inglés técnico para flags/ayuda, este documento en español.
-> Convención: `INPUT...` = 1..N rutas; `stem` = nombre sin extensión; salida siempre `.mp4`.
+> Convención: `INPUT...` = 1..N rutas de medio; `stem` = nombre sin extensión; `<ext>` = `mp4` para video y la extensión original para audio.
 
 ## Índice
 
@@ -40,55 +40,59 @@
 
 ## 1. Resumen
 
-CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, salida, `prefix/suffix`, `audio-bitrate` y lote. Entrega `.mp4` con video idéntico y audio `AAC` limpio al bitrate pedido.
+CLI offline-first que limpia ruido de voz de 1..N medios (video o audio), parametrizando entradas, salida, `prefix/suffix`, `audio-bitrate` y lote. Para video entrega `.mp4` con el flujo de video idéntico y audio `AAC` limpio al bitrate pedido; para audio entrega un archivo limpio que conserva el contenedor de entrada (o la extensión soportada indicada en `--output-name`).
 
 ## 2. Requerimientos funcionales
 
 ### RF-01 Entradas individuales y múltiples
 * **ID:** RF-01. **Prioridad:** Alta.
-* Aceptar `INPUT...` con 1..N rutas de archivo `mp4/mov/mkv/webm/avi` (insensible a mayúsculas).
-* Rechazar extensiones no soportadas y rutas inexistentes con error `E_INVALID_INPUT`. Directorio expandido sin videos → `E_INVALID_INPUT` lote vacío; duplicados por absoluto normalizado lexical (absolutizar contra cwd + normalizar `./`/`../` sin tocar disco ni resolver symlinks).
+* Aceptar `INPUT...` con 1..N rutas de video (`mp4/mov/mkv/webm/avi`) o audio (`wav/mp3/m4a/aac/flac/ogg/opus`), insensible a mayúsculas.
+* Rechazar extensiones no soportadas y rutas inexistentes con error `E_INVALID_INPUT`. Directorio expandido sin medios → `E_INVALID_INPUT` lote vacío; duplicados por absoluto normalizado lexical (absolutizar contra cwd + normalizar `./`/`../` sin tocar disco ni resolver symlinks).
 * **Aceptación:** `denoise a.mp4 b.mov` produce 2 salidas; con 1 ruta mala, procesa las válidas y reporta la mala sin abortar lote.
 
 ### RF-02 Entrada por directorio y recursividad
 * **ID:** RF-02. **Prioridad:** Alta.
-* Si `INPUT` es directorio: expande a videos `mp4/mov/mkv/webm/avi` según `--recursive`.
+* Si `INPUT` es directorio: expande a medios `mp4/mov/mkv/webm/avi/wav/mp3/m4a/aac/flac/ogg/opus` según `--recursive`.
 * Orden determinista byte-wise UTF-8 del path absoluto. Sin duplicados tras expandir (absoluto lexical, case-insensitive solo en Win vía `to_lowercase`).
 * Si `--output-dir` está dentro de un `INPUT` directorio con `--recursive`, sus contenidos se excluyen del escaneo y se avisa en `--verbose`; evita loop infinito en re-corridas.
-* En escaneo con `--recursive` se excluyen además los ficheros que ya terminan en `<suffix>.mp4` vigente (por defecto `*_denoised.mp4`) y se avisa en `--verbose`; evita generar `*_denoised_denoised.mp4` en re-corridas in-place.
+* En escaneo con `--recursive` se excluyen además los medios cuyo `file_stem` termina en el `<suffix>` vigente (por defecto `*_denoised`, agnóstico de extensión) y se avisa en `--verbose`; evita generar `*_denoised_denoised.<ext>` en re-corridas in-place.
 * **Aceptación:** `denoise ./crudos/ --recursive` procesa incluyendo subcarpetas, en orden estable.
 
 ### RF-03 Salida parametrizable: nombre, directorio, prefijo, sufijo
 * **ID:** RF-03. **Prioridad:** Alta.
-* Flags: `-o/--output-name NAME` (solo si lote expandido ==1 video; `--output-name` con lote>1 → `E_INVALID_INPUT`), `--output-dir DIR`, `--prefix STR`, `--suffix STR` (defecto `_denoised`). `--output-name` y `--output-dir` son COMPLEMENTARIOS: `--output-name` define el nombre base y `--output-dir` el directorio; si `--output-dir` falta se usa cwd. Si `--output-name` no termina en `.mp4` (case-insensitive) se añade `.mp4` automáticamente; ej. `--output-name final` → `final.mp4`.
-* Precedencia: `1) --output-name en DIR (--output-dir o cwd) con auto-.mp4 > 2) --output-dir/<relativo-cwd>/<prefix><stem><suffix>.mp4 recreando árbol si --recursive > 3) junto al original`. `--output-name` sin `--output-dir` → DIR=cwd. Si 2+ entradas del lote resuelven al MISMO path de salida —p.ej. `a.mp4`+`a.mov`→`a_denoised.mp4`— se aplica auto-sufijo incremental al 2º y siguientes: `a_denoised_1.mp4`, `a_denoised_2.mp4`..., con aviso SIEMPRE a `stderr`/`message` no solo `-v`; el reporte lista cada salida real).
+* Flags: `-o/--output-name NAME` (solo si lote expandido ==1 medio; `--output-name` con lote>1 → `E_INVALID_INPUT`), `--output-dir DIR`, `--prefix STR`, `--suffix STR` (defecto `_denoised`). `--output-name` y `--output-dir` son COMPLEMENTARIOS: `--output-name` define el nombre base y `--output-dir` el directorio; si `--output-dir` falta se usa cwd. Si `NAME` incluye una extensión de medio soportada se respeta estrictamente; si no, se añade la extensión por defecto del medio: `final` → `final.mp4` (video) o `final.wav` (entrada `.wav`).
+* Precedencia: `1) --output-name en DIR (--output-dir o cwd) con extensión soportada o auto-ext > 2) --output-dir/<relativo-cwd>/<prefix><stem><suffix>.<ext> recreando árbol si --recursive > 3) junto al original`. `--output-name` sin `--output-dir` → DIR=cwd. Si 2+ entradas del lote resuelven al MISMO path de salida —p.ej. `a.mp4`+`a.mov`→`a_denoised.mp4`— se aplica auto-sufijo incremental al 2º y siguientes: `a_denoised_1.<ext>`, `a_denoised_2.<ext>`..., con aviso SIEMPRE a `stderr`/`message` no solo `-v`; el reporte lista cada salida real).
 * Se crean directorios padre automáticamente para `--output-name`, `--output-dir` y `--model-dir`; si no creables → `E_IO`.
-* `--recursive` + `--output-dir` recrea árbol relativo a cwd: `DIR/<ruta-dada-relativa-a-cwd>/<prefix><stem><suffix>.mp4`; ej. `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; archivo suelto `a.mp4 → out/a_denoised.mp4`; absoluto fuera de cwd → solo `stem` + aviso `--verbose`. La exclusión aplica si `DIR` está dentro de `INPUT`.
-* `prefix/suffix` solo caracteres `[A-Za-z0-9._-]`, prohibidos `.` y `..` exactos (vacío permitido para uno de los dos, no ambos vacíos si la salida es el mismo directorio que la entrada, para evitar sobrescribirse). Remux vía `OUT.part.mp4` + rename atómico: `std::fs::rename` reemplaza atómicamente el destino tanto en POSIX como en Win (`MoveFileExW` + `REPLACE_EXISTING`; la garantía de no-sobrescritura descansa exclusivamente en el colisión-check previo de RF-04 `E_OUTPUT_EXISTS`/`skipped`). I/O WAV con `hound` PCM16 + `f32` (`i16→f32 /32768.0` y vuelta con clip); `ffmpeg` produce/consume `PCM16 48k mono`.
+* `--recursive` + `--output-dir` recrea árbol relativo a cwd: `DIR/<ruta-dada-relativa-a-cwd>/<prefix><stem><suffix>.<ext>`; ej. `dirA/sub/x.mp4 → out/dirA/sub/x_denoised.mp4`; archivo suelto `a.mp4 → out/a_denoised.mp4`; absoluto fuera de cwd → solo `stem` + aviso `--verbose`. La exclusión aplica si `DIR` está dentro de `INPUT`.
+* `prefix/suffix` solo caracteres `[A-Za-z0-9._-]`, prohibidos `.` y `..` exactos (vacío permitido para uno de los dos, no ambos vacíos si la salida es el mismo directorio que la entrada, para evitar sobrescribirse). Egresión vía `<output_stem>.part.<ext>` + rename atómico: `std::fs::rename` reemplaza atómicamente el destino tanto en POSIX como en Win (`MoveFileExW` + `REPLACE_EXISTING`; la garantía de no-sobrescritura descansa exclusivamente en el colisión-check previo de RF-04 `E_OUTPUT_EXISTS`/`skipped`). I/O WAV con `hound` PCM16 + `f32` (`i16→f32 /32768.0` y vuelta con clip); `ffmpeg` produce/consume `PCM16 48k mono`.
 * `--audio-bitrate` no afecta al nombre (ver RF-05B). `--output-name` que resuelve a la propia entrada sin `prefix/suffix` efectivo → `E_INVALID_INPUT` exit `2` siempre, incluso con `--overwrite`.
 * **Aceptación:**
   * `denoise boda.mp4` → `boda_denoised.mp4`
   * `denoise boda.mp4 --prefix pod- --suffix _clean` → `pod-boda_clean.mp4`
   * `denoise a.mp4 --output-name final` → `final.mp4` (cwd)
   * `denoise a.mp4 --output-name final --output-dir limpio` → `limpio/final.mp4`
+  * `denoise take.wav` → `take_denoised.wav`; `denoise song.flac` → `song_denoised.flac`
+  * `denoise take.wav --output-name final` → `final.wav`; `denoise take.wav --output-name final.mp3` → `final.mp3`
   * `denoise a.mp4 --verbose` → salida de debug `stderr` sin modificar salida
 
 * **Tabla de decisión — composición de nombres de salida**:
 
   | `--output-name` | `--output-dir` | `--prefix` | `--suffix` | Resultado |
   |---|---|---|---|---|
-  | NAME | — | — | — | `NAME.mp4` (cwd) |
-  | NAME | DIR | — | — | `DIR/NAME.mp4` |
-  | NAME | — | (ignorado) | (ignorado) | `NAME.mp4` (cwd) |
-  | NAME | DIR | (ignorado) | (ignorado) | `DIR/NAME.mp4` |
-  | — | DIR | — | suf | `DIR/<stem><suf>.mp4` |
-  | — | DIR | pre | — | `DIR/<pre><stem>.mp4` |
-  | — | — | pre | suf | `<pre><stem><suf>.mp4` (junto al original) |
-  | — | — | — | suf | `<stem><suf>.mp4` (junto al original; defecto suf=`_denoised`) |
+  | NAME | — | — | — | `NAME` (cwd; auto-ext si NAME no trae una soportada) |
+  | NAME | DIR | — | — | `DIR/NAME` (auto-ext si NAME no trae una soportada) |
+  | NAME | — | (ignorado) | (ignorado) | `NAME` (cwd; auto-ext si procede) |
+  | NAME | DIR | (ignorado) | (ignorado) | `DIR/NAME` (auto-ext si procede) |
+  | — | DIR | — | suf | `DIR/<stem><suf>.<ext>` |
+  | — | DIR | pre | — | `DIR/<pre><stem>.<ext>` |
+  | — | — | pre | suf | `<pre><stem><suf>.<ext>` (junto al original) |
+  | — | — | — | suf | `<stem><suf>.<ext>` (junto al original; defecto suf=`_denoised`) |
+
+  > `<ext>` = `mp4` si la entrada es video; extensión original (minúsculas) si es audio. Con `--output-name`, la extensión del nombre manda si es una extensión de medio soportada.
 
   **Reglas:**
- 1. `--output-name` tiene **prioridad absoluta**: cuando está presente, `NAME` es el nombre base final y `prefix`/`suffix` se **ignoran** (no se aplican). `--output-name` sin `.mp4` → auto-añade `.mp4`. `--output-name` con lote>1 → `E_INVALID_INPUT`. `--output-name` resolviendo a la propia entrada sin prefix/suffix efectivo → `E_INVALID_INPUT` exit `2` siempre.
- 2. `--prefix` y `--suffix` se aplican **solo** cuando `--output-name` NO está presente. Se insertan entre `stem` y `.mp4` (o entre `DIR/` y el nombre final en regla 2). Si `suffix` es `None` → `_denoised`; si `prefix` y `suffix` explícitos son ambos `""` y la salida es in-place (mismo dir que entrada) → `E_INVALID_INPUT`.
+ 1. `--output-name` tiene **prioridad absoluta**: cuando está presente, `NAME` es el nombre base final y `prefix`/`suffix` se **ignoran** (no se aplican). `--output-name` sin extensión de medio soportada → auto-añade la del medio (`mp4` para video, original para audio). `--output-name` con lote>1 → `E_INVALID_INPUT`. `--output-name` resolviendo a la propia entrada sin prefix/suffix efectivo → `E_INVALID_INPUT` exit `2` siempre.
+ 2. `--prefix` y `--suffix` se aplican **solo** cuando `--output-name` NO está presente. Se insertan entre `stem` y `.<ext>` (o entre `DIR/` y el nombre final en regla 2). Si `suffix` es `None` → `_denoised`; si `prefix` y `suffix` explícitos son ambos `""` y la salida es in-place (mismo dir que entrada) → `E_INVALID_INPUT`.
   3. `--output-dir` modifica solo la **ruta directorio**, no el nombre. Si `--output-dir` está dentro de `INPUT` → aviso `--verbose` (exclusión).
   4. `--output-name` y `--output-dir` son **COMPLEMENTARIOS**: no son excluyentes; definen nombre base y directorio respectivamente.
 
@@ -100,14 +104,15 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ### RF-05 Denoise de pista de audio (única transformación IA)
 * **ID:** RF-05. **Prioridad:** Alta.
-* Extraer con `ffmpeg -vn -map 0:a:0 -ac 1 -ar 48000` (`-map 0:a:0` obligatorio para fijar primera pista en multi-audio), inferir DPDFNet (grafo único stateful) en CPU de forma secuencial sin trocear, sin normalización ni limiter (la voz conserva la escala exacta del modelo, multiplicada por 1.0; un gate de pausa atenúa `−25 dB` las zonas sin voz justo antes de cuantizar a PCM16, así que la salida completa ya no es bit-exacta con sherpa-onnx — detalle en `docs/design.md §6`), remezclar.
-* Video: `-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <audio-bitrate>k -t <dur_video>` (sustituye a `-shortest`; `<dur_video>` = duración del CONTENEDOR leída en probe (`Duration:`), dato que el probe sin `ffprobe` no puede exponer; si el audio limpio es más corto, la cola queda muda; si el audio del input es más largo que el video, la salida se alarga a la duración del contenedor (limitación v1 documentada en `docs/design.md §9`); coherente con verificación ligera `±0.5s`).
-* **Aceptación:** salida conserva `codec/res/fps` originales, audio `aac 48k` al bitrate pedido; mejora audible/SI-SDR en test dorado. La verificación runtime ligera comprueba `OUT existe >0B + duración ±0.5s vía ffmpeg -i + presencia del stream Audio`, y `test_remux` añade la igualdad del hash h264 del video; el umbral de duración verificado es `±0.5s` en ambos casos.
+* Extraer con `ffmpeg -vn -map 0:a:0 -ac 1 -ar 48000` (`-map 0:a:0` obligatorio para fijar primera pista en multi-audio), inferir DPDFNet (grafo único stateful) en CPU de forma secuencial sin trocear, sin normalización ni limiter (la voz conserva la escala exacta del modelo, multiplicada por 1.0; un gate de pausa atenúa `−25 dB` las zonas sin voz justo antes de cuantizar a PCM16, así que la salida completa ya no es bit-exacta con sherpa-onnx — detalle en `docs/design.md §6`), y emitir según `MediaKind`.
+* Video (`MediaKind::Video`): `-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <audio-bitrate>k -t <dur_medio>` (sustituye a `-shortest`; `<dur_medio>` = duración del CONTENEDOR leída en probe (`Duration:`), dato que el probe sin `ffprobe` no puede exponer; si el audio limpio es más corto, la cola queda muda; si el audio del input es más largo que el video, la salida se alarga a la duración del contenedor (limitación v1 documentada en `docs/design.md §9`); coherente con verificación ligera `±0.5s`).
+* Audio (`MediaKind::Audio`): preserva el contenedor de la extensión final; en los formatos comprimidos copia los metadatos del input (`-map 1:a:0 -map_metadata 0`), mientras `.wav` se escribe PCM16 directamente desde el WAV limpio del DSP. Códecs: `.wav` → `pcm_s16le` sin pérdida; `.mp3` → `libmp3lame`; `.m4a/.aac` → `aac`; `.flac` → `flac`; `.ogg` → `libvorbis`; `.opus` → `libopus`. El bitrate se aplica solo a códecs con pérdida.
+* **Aceptación:** la salida de video conserva `codec/res/fps` originales, audio `aac 48k` al bitrate pedido; la salida de audio conserva su contenedor/duración (±0.5s) y es legible por `hound` cuando es `.wav`; mejora audible/SI-SDR en test dorado. La verificación runtime ligera comprueba `OUT existe >0B + duración ±0.5s vía ffmpeg -i + presencia del stream Audio` (y del stream Video solo para `MediaKind::Video`), y `test_remux` añade la igualdad del hash h264 del video; el umbral de duración verificado es `±0.5s` en ambos casos.
 
 ### RF-05B Bitrate de audio parametrizable
 * **ID:** RF-05B. **Prioridad:** Media.
-* Flag `--audio-bitrate KBPS` (defecto `192`, rango `64-320`) para `-b:a`.
-* **Aceptación:** `denoise boda.mp4 --audio-bitrate 128` emite el audio con `-b:a 128k` en el remux; valor fuera del rango `64-320` → `E_INVALID_INPUT` (cubierto por `test_errors::test_invalid_bitrate`, que valida el rango del flag). El bitrate efectivo de la salida no se mide de forma automática en v1: no hay assert que compare el audio resultante contra el bitrate pedido, porque la verificación runtime ligera se limita a `>0B + duración ±0.5s + stream Audio presente` y `test_remux` hace `±0.5s` + hash h264.
+* Flag `--audio-bitrate KBPS` (defecto `192`, rango `64-320`) para `-b:a` en la egresión con pérdida (AAC del video, `.mp3`, `.m4a`, `.aac`, `.ogg`, `.opus`). `.wav` y `.flac` son sin pérdida y no usan bitrate.
+* **Aceptación:** `denoise boda.mp4 --audio-bitrate 128` emite el audio con `-b:a 128k` en el remux; `denoise take.wav --output-name final.mp3 --audio-bitrate 128` emite MP3 a 128k; valor fuera del rango `64-320` → `E_INVALID_INPUT` (cubierto por `test_errors::test_invalid_bitrate`, que valida el rango del flag). El bitrate efectivo de la salida no se mide de forma automática en v1: no hay assert que compare el audio resultante contra el bitrate pedido, porque la verificación runtime ligera se limita a `>0B + duración ±0.5s + stream Audio presente` y `test_remux` hace `±0.5s` + hash h264.
 
 ### RF-06 Modelo autocontenido on-demand
 * **ID:** RF-06. **Prioridad:** Alta.
@@ -119,26 +124,26 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * **ID:** RF-07. **Prioridad:** Alta.
 * Resolver ffmpeg vía `--ffmpeg-path` o `PATH`; si ausente → `E_FFMPEG_NOT_FOUND`. Requiere `ffmpeg 6+`, verificado con `ffmpeg -version` y regex `ffmpeg version (\d+)\.` (major>=6) con fallback a prefijo `N-` para builds git BtbN/gyan aceptados como válidos; si tampoco matchea → `E_FFMPEG_NOT_FOUND` con la línea de versión cruda en el mensaje. Sin `ffprobe`.
 * Receta instalación documentada en `README.md` §3: Win `winget install Gyan.FFmpeg` / `choco install ffmpeg`, macOS `brew install ffmpeg`, Linux `apt install ffmpeg` (verificar `ffmpeg -version` muestra `6+`).
-* `probe().has_audio` (campo de `ProbeResult`) y duración vía `ffmpeg -hide_banner -i` (`Duration:` = duración del contenedor, fuente de `<dur_video>`; en contenedores `mov/mp4` se utiliza `-ignore_editlist 1` para alinear la línea de tiempo física 1:1 con el video copiado); sin audio → `E_NO_AUDIO`, sin salida. Solo-video sin `Audio:` → `E_NO_AUDIO`; solo-audio/imagen renombrada a `.mp4`/corrupto que falla en probe → `E_INVALID_INPUT`; `E_FFMPEG_FAILED` solo si `ffmpeg` falla en `extract/remux`.
+* `probe()` clasifica la entrada en `MediaKind::Video` (`has_video && has_audio`) o `MediaKind::Audio` (`!has_video && has_audio`), ignorando las carátulas adjuntas (`attached pic`) al detectar el stream de video, y expone `has_audio`, `has_video`, `duration` y `channels` en `ProbeResult`, con duración vía `ffmpeg -hide_banner -i` (`Duration:` = duración del contenedor, fuente de `<dur_medio>`; en contenedores `mov/mp4` se utiliza `-ignore_editlist 1` para alinear la línea de tiempo física 1:1 con el video copiado). Sin streams → `E_INVALID_INPUT`; solo-video sin `Audio:` → `E_NO_AUDIO`; solo audio → válido, sin error; `E_FFMPEG_FAILED` solo si `ffmpeg` falla en `extract/egress`.
 * **Aceptación:** video sin audio, ffmpeg ausente y entrada corrupta reportan códigos distintos y no dejan parciales.
 
 ### RF-08 Lote robusto, dry-run, resumen JSON/humano
 * **ID:** RF-08. **Prioridad:** Media.
 * Procesamiento secuencial; un fallo no aborta lote (salvo `Ctrl+C`). Resumen final `ok=N failed=N skipped=N`.
 * `--dry-run`: solo lista `input → output (skip: motivo)` sin escribir/crear nada ni invocar IA/ffmpeg, en el mismo orden del lote real. Solo lectura `stat` para el colisión-check, sin `ffmpeg/modelo/has_audio` (`dry-run` = expandir + resolver + colisión por lectura, cero escrituras). Sale con `exit 0` siempre que la CLI sea estructuralmente válida; los errores estructurales (flags inválidos/combinados como `--output-name` con lote>1, bitrate fuera de rango, prefix/suffix inválidos, lote vacío `E_INVALID_INPUT`) fallan antes de simular con `exit 2` y sin reporte, igual que la corrida real; las colisiones y los inválidos per-archivo se reportan en `message`/`summary` con `exit 0`. El dry-run simula además la intención de los flags de colisión: destino existente con `--overwrite` → `would overwrite`, sin `--overwrite` → `would fail: E_OUTPUT_EXISTS`, con `--skip-existing` → `would skip`. Con `--dry-run --json` emite la misma tabla en `JSONL` con `status="dry-run"` y `pct=0`, sin crear nada.
-* Humano: cabecera `[i/N]`, una barra viva por video a `stderr` (`indicatif`; `ProgressDrawTarget::hidden()` solo con `--json`), línea final por video con `MB + segundos`, resumen final. Sin TTY: mismo comportamiento que con TTY (líneas por fase, sin animación real porque `indicatif` va a `stderr`). Orden estricto, flush explícito tras cada línea. Mapeo `pct`: `0 inicio/colisión-check, 1-5 extract, 6-80 denoise secuencial, 81-95 remux, 96-99 verificar+limpiar, 100 ok/failed; skipped SIEMPRE pct=0` (un archivo `skipped` nunca se procesó, consistente con `dry-run pct=0`).
+* Humano: cabecera `[i/N]`, una barra viva por medio a `stderr` (`indicatif`; `ProgressDrawTarget::hidden()` solo con `--json`), línea final por medio con `MB + segundos`, resumen final. Sin TTY: mismo comportamiento que con TTY (líneas por fase, sin animación real porque `indicatif` va a `stderr`). Orden estricto, flush explícito tras cada línea. Mapeo `pct`: `0 inicio/colisión-check, 1-5 extract, 6-80 denoise secuencial, 81-95 egresión, 96-99 verificar+limpiar, 100 ok/failed; skipped SIEMPRE pct=0` (un archivo `skipped` nunca se procesó, consistente con `dry-run pct=0`).
 * `--json`: desactiva animación; `stdout` en `JSONL` una línea por archivo `{input,output,status,message,pct}` + línea final `{summary:{ok,failed,skipped}}` (`status ∈ {ok,failed,skipped,dry-run}`, `pct 0-100` según mapeo —`skipped` → `pct=0`—, `summary` sin `pct`). Sin `--json`: salida humana a `stderr`. (`--json + --verbose` combinables —`stdout` JSONL inalterado parseable con `jq`, debug a `stderr` + conserva temps como `--verbose` solo).
-* **Aceptación:** corrida real lote 5 con 1 corrupto → 4 ok + 1 failed, exit `!=0`, JSON parseable; `--dry-run` del mismo lote → exit `0` con `status="dry-run"`; en modo humano el proceso muestra avance por video sin quedarse silencioso >2s.
+* **Aceptación:** corrida real lote 5 con 1 corrupto → 4 ok + 1 failed, exit `!=0`, JSON parseable; `--dry-run` del mismo lote → exit `0` con `status="dry-run"`; en modo humano el proceso muestra avance por medio sin quedarse silencioso >2s.
 
 ### RF-09 Temporales, cancelación y limpieza
 * **ID:** RF-09. **Prioridad:** Media.
-* Temps `<out>.tmp.in.wav` y `<out>.tmp.out.wav` junto a la salida. Limpieza garantizada en todos los caminos salvo `--verbose` debug (por defecto guardia `Drop`/limpieza explícita + borrado `.part`; con `--verbose` se conservan `.wav`/`.part` para inspeccionar).
+* Temps `<out>.tmp.in.wav`, `<out>.tmp.out.wav` y parcial `<output_stem>.part.<ext>` junto a la salida. Limpieza garantizada en todos los caminos salvo `--verbose` debug (por defecto guardia `Drop`/limpieza explícita + borrado `.part`; con `--verbose` se conservan `.wav`/`.part` para inspeccionar).
 * `Ctrl+C`: handler `ctrlc` + flag atómico → `Child::kill` al hijo `ffmpeg`/cierre de inferencia, borra parcial y temps, exit 3. 2º `Ctrl+C` fuerza salida inmediata exit 3 aunque quede limpieza. (la descarga del modelo no es cancelable cooperativamente: `reqwest blocking` no consulta el flag; latencia máx = timeout 60s; exit `3` consistente para cancelación en pipeline). Inferencia `ort` cancelable cooperativamente (latencia máxima = inferencia en curso). Hijo `ffmpeg` vía `Command::status()` bloqueante sin `creation_flags`; cancelación vía flag cooperativo `AtomicBool` + limpieza `Drop` (`TempCleaner`). Comportamiento observable único Win/POSIX. Disco lleno/sin permiso al escribir salida/temps → `E_IO`.
 * **Aceptación:** interrumpir a mitad no deja `.mp4` parcial ni `.wav`.
 
 ### RF-10 Ayuda, versión y verbosidad
 * **ID:** RF-10. **Prioridad:** Media.
-* `--help` documenta todos los flags con ejemplos; `--version` imprime `denoise 1.0.0 + modelo DPDFNet + ffmpeg <ver>` (fuente única `Cargo.toml [package] version="1.0.0"` leída vía `env!("CARGO_PKG_VERSION")`; nombre canónico todo `denoise`); `--verbose` añade a `stderr` el detalle del escaneo y la nomenclatura (exclusión de `output-dir` anidado, exclusión de `*<suffix>.mp4`, entrada fuera de cwd resuelta con nombre plano) y conserva los temporales (`.tmp.*.wav`, `.part.mp4`) para poder inspeccionarlos.
+* `--help` documenta todos los flags con ejemplos; `--version` imprime `denoise 1.0.0 + modelo DPDFNet + ffmpeg <ver>` (fuente única `Cargo.toml [package] version="1.0.0"` leída vía `env!("CARGO_PKG_VERSION")`; nombre canónico todo `denoise`); `--verbose` añade a `stderr` el detalle del escaneo y la nomenclatura (exclusión de `output-dir` anidado, exclusión de `*<suffix>`, entrada fuera de cwd resuelta con nombre plano) y conserva los temporales (`.tmp.*.wav`, `.part.<ext>`) para poder inspeccionarlos.
 * Niveles: defecto fases, `--verbose` añade depuración a `stderr`. Sin nivel silencioso separado: `--json` ya es apto para scripting.
 * **Aceptación:** `denoise --help` es suficiente para usar sin leer este doc; con `--verbose` se pueden inspeccionar los temporales conservados de una ejecución que falló.
 
@@ -151,7 +156,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ### RNF-02 Portabilidad
 * `Windows 10+ / macOS 13+ / Linux x64`. Rutas con espacios y no-latinas. Hijos `ffmpeg` siempre con `String::from_utf8_lossy`. Sin `NUL` vs `/dev/null` hardcodeado.
-* **Verificación:** matriz manual por OS (1 video por OS) + `cargo build --release` + `cargo test`.
+* **Verificación:** matriz manual por OS (1 medio por OS) + `cargo build --release` + `cargo test`.
 
 ### RNF-03 Rendimiento y recursos
 * Memoria proporcional a la duración (un frame STFT por vez, estado recurrente encadenado); CPU 1 job secuencial; sin GPU requerida. RTF: objetivo `<= 1.0`; medido en la máquina de referencia del proyecto 1,06–1,19 con el set de 7 clips (techo del DSP ~1,09; la carga del modelo ONNX, ~0,25 s, solo afecta al primer clip y queda amortizada en clips ≥15 s). sherpa-onnx: 0.84 en su CPU de referencia. Sin verificación automatizada en §6.
@@ -168,7 +173,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 * Mensajes de error accionables (`qué pasó + qué hacer`). Exit codes estables: `0 ok/skip, 1 ffmpeg/modelo/IO, 2 entrada/salida, 3 cancelado`. `E_IO → 1`: disco lleno, sin permiso escritura, sin espacio en descarga, `--output-name`/`--output-dir`/`--model-dir` no creables. Batch mixto con fallos `1` y `2` → exit `1` (prioridad `1>2`, `3` siempre gana si hubo cancelación). `--json` estable para `jq`. `--version` sin `ffmpeg` imprime `ffmpeg missing` en lugar de fallar. (`--dry-run` exit `0` con CLI estructuralmente válida; errores estructurales → exit `2` antes de simular).
 
 ### RNF-07 Mantenibilidad y test
-* Módulos `df/{mod,stft,net}.rs` <400 líneas c/u (243/292/235); el resto del binario queda fuera de esta meta., funciones puras donde sea posible (`resolve_output()` en `cli.rs` vía `lib.rs` testeable sin ffmpeg). `tests/test_naming.rs` sin red ni modelo; `test_golden/test_remux` marcados `#[ignore]` (slow).
+* Módulos `df/{mod,stft,net}.rs` <400 líneas c/u (243/292/235); el resto del binario queda fuera de esta meta., funciones puras donde sea posible (`resolve_output()` en `cli.rs` vía `lib.rs` testeable sin ffmpeg). `tests/test_naming.rs` sin red ni modelo; `test_golden/test_remux/test_audio_pipeline` marcados `#[ignore]` (slow).
 * Comandos: `cargo test` (rápido, requiere `ffmpeg 6+` real + `FakeProvider` sin red/modelo) y `cargo test --release -- --ignored` (dorado + e2e). Sin warnings de `clippy`.
 
 ### RNF-08 Licencias y atribución
@@ -195,7 +200,7 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 1. Video vertical/teléfono, 4K, `mkv` con múltiples audios → se usa `0:v:0` + primera pista a mono vía `-map 0:a:0`; resto de pistas/subs se pierden (limitación documentada en `README.md` §6 Limitaciones Conocidas).
 2. Nombre con espacios/acentos/emoji + ruta >150 caracteres en Win.
-3. Video sin audio/solo-video → `E_NO_AUDIO`, imagen renombrada a `.mp4`/solo-audio/corrupto en probe → `E_INVALID_INPUT`, archivo `0B`, `bitrate` fuera de rango.
+3. Video sin audio/solo-video → `E_NO_AUDIO`; entrada corrupta o sin streams en probe → `E_INVALID_INPUT`; solo audio es una entrada válida (`MediaKind::Audio`). Archivo `0B` o `bitrate` fuera de rango → `E_INVALID_INPUT`.
 4. Salida en disco distinto / sin permiso escritura (`E_IO`) / `--output-name`, `--output-dir`, `--model-dir` a carpeta inexistente (debe crearla, si no creable → `E_IO`) vs `--output-name` con lote expandido `>1` (debe fallar `E_INVALID_INPUT`) o `--output-name` resolviendo a la propia entrada sin `prefix/suffix` efectivo (debe fallar `E_INVALID_INPUT` siempre, incluso con `--overwrite`). (`--output-name` sin `.mp4` auto-añade, no falla).
 5. Lote con mezcla de ok + sin-audio + colisión existente + 1 ruta inexistente.
 6. Corte `Ctrl+C` durante `extract`, durante `inferencia`, durante `remux` → exit 3, sin `.part` ni `.wav`.
@@ -203,9 +208,9 @@ CLI offline-first que limpia ruido de 1..N videos, parametrizando entradas, sali
 
 ## 6. Criterios de aceptación de entrega v1 (DoD de ejecución, verificado)
 
-* [x] `denoise 1.mp4` y `denoise dir/ --recursive --output-dir out/ --suffix _clean` funcionan offline tras primera descarga.
-* [x] `cargo test` en verde + `cargo test --release -- --ignored` (`test_golden/test_remux`) en verde en 1 máquina Win (verificación de la entrega v1.0.0; estado actual: `test_golden_3s`, `test_golden_65s` y `test_remux` en verde, ver §6.1).
-* [x] Corrida real `--json` en lote 5 con 1 fallo inducido → exit `!=0` y JSON parseable; `--dry-run` del mismo lote → exit `0`; progreso humano muestra `[i/N]` por video.
+* [x] `denoise 1.mp4`, `denoise take.wav`, `denoise song.mp3` y `denoise dir/ --recursive --output-dir out/ --suffix _clean` funcionan offline tras primera descarga.
+* [x] `cargo test` en verde + `cargo test --release -- --ignored` (`test_golden/test_remux/test_audio_pipeline`) en verde en 1 máquina Win (verificación de la entrega v1.0.0; estado actual: `test_golden_3s`, `test_golden_65s`, `test_remux` y `test_audio_pipeline` en verde, ver §6.1).
+* [x] Corrida real `--json` en lote 5 con 1 fallo inducido → exit `!=0` y JSON parseable; `--dry-run` del mismo lote → exit `0`; progreso humano muestra `[i/N]` por medio.
 * [x] Repo copiado a otra máquina compila directamente con `cargo build --release`.
 * [x] `cargo build --release` + `cargo test` (sin `--ignored`) en verde en Win.
 * [x] Fixture manual `assets/e2e_vertical_1080x1920_16s.mp4` (vertical 1080x1920, 16s, con audio): `--dry-run` primero, luego corrida real.
