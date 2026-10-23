@@ -150,6 +150,10 @@ const GATE_HANGOVER: usize = 5;
 /// Atenuación de las pausas en dB; la ganancia lineal vale `10^(dB / 20)`.
 const GATE_CRUSH_DB: f64 = -25.0;
 
+/// Tasa de cruce por cero mínima para clasificar marcos de energía intermedia
+/// (`db >= peak - GATE_LO_DB`) como fonemas sordos/fricativos y evitar cortes de voz.
+const GATE_ZCR_FRICATIVE_THRESHOLD: f64 = 0.22;
+
 /// Muestras del fundido raised-cosine centrado en cada transición de ganancia.
 const GATE_FADE: usize = GATE_FRAME;
 
@@ -167,7 +171,7 @@ const GATE_FADE: usize = GATE_FRAME;
 /// batería (7/7 verde); ver `docs/benchmark.md`.
 ///
 /// Cómo: VAD solo sobre la salida — RMS de `GATE_FRAME` muestras en dB contra el
-/// pico del clip, voz a `GATE_HI_DB`, salida con histéresis a `GATE_LO_DB` tras
+/// pico del clip, voz a `GATE_HI_DB` o por ZCR fricativo condicionado, salida con histéresis a `GATE_LO_DB` tras
 /// `GATE_EXIT_FRAMES` marcos y colchón de `GATE_HANGOVER` marcos tras la voz —
 /// y después ganancia por marco con fundido raised-cosine de `GATE_FADE`
 /// muestras en cada transición. Solo se analiza la parte múltiple de
@@ -180,17 +184,25 @@ fn apply_pause_gate(samples: &mut [f32]) {
     let n_frames = samples.len() / GATE_FRAME;
 
     let mut rms = Vec::with_capacity(n_frames);
+    let mut zcr = Vec::with_capacity(n_frames);
     for frame in samples[..n_frames * GATE_FRAME].chunks_exact(GATE_FRAME) {
         let mean = frame.iter().map(|&s| (s as f64) * (s as f64)).sum::<f64>() / GATE_FRAME as f64;
         rms.push(10.0 * mean.max(1e-20).log10());
+        let crossings = frame
+            .windows(2)
+            .filter(|w| (w[0] >= 0.0) != (w[1] >= 0.0))
+            .count();
+        zcr.push(crossings as f64 / (GATE_FRAME - 1) as f64);
     }
     let peak = rms.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
     let mut voice = false;
     let mut quiet = 0usize;
     let mut state = Vec::with_capacity(n_frames);
-    for &db in &rms {
-        let hi = db >= peak - GATE_HI_DB;
+    for i in 0..n_frames {
+        let db = rms[i];
+        let fricative = db >= peak - GATE_LO_DB && zcr[i] >= GATE_ZCR_FRICATIVE_THRESHOLD;
+        let hi = db >= peak - GATE_HI_DB || fricative;
         if voice {
             quiet = if hi { 0 } else { quiet + 1 };
             if db <= peak - GATE_LO_DB && quiet >= GATE_EXIT_FRAMES {

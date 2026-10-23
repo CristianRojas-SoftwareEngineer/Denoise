@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Features
+- Protección de consonantes sordas en el gate de pausa (`src/df/mod.rs::apply_pause_gate`): se introduce `GATE_ZCR_FRICATIVE_THRESHOLD = 0.22` como clasificador condicionado en marcos con energía intermedia (`db >= peak - GATE_LO_DB`), previniendo atenuaciones abruptas ("mordida") en fonemas fricativos y oclusivos débiles sin abrir el gate ante ruido residual en silencios profundos.
 - Progreso granular del DSP (`src/df/mod.rs` y `src/df/net.rs`): inferencia frame a frame vía `infer_frame()` reportando avance porcentual fluido (~5% por tick) a través del callback del pipeline, evitando bloqueos visuales en la interfaz entre el 6% y 80% durante procesamientos extensos.
 - Gate de pausa en la síntesis (`src/df/mod.rs::apply_pause_gate`): VAD solo-salida sobre RMS por marcos de 1440 muestras (30 ms) — voz si `rms >= pico−30 dB`, salida de voz si `rms <= pico−45 dB` durante 3 marcos, hangover de 5 — que atenúa −25 dB las pausas con fundidos raised-cosine de 30 ms, justo antes de cuantizar a PCM16. Por qué: el residuo que el modelo deja en las pausas estaba muy por encima de la voz limpia y hundía SI-SDR, p5, STOI y PESQ; la voz queda multiplicada por 1.0 (bit-idéntica a la síntesis) y no hay ganancia, normalización global ni limiter. Validado 7/7 en la puerta de calidad sin regresiones (`docs/benchmark.md` §5) y con la mejora ratificada después en `tools/quality/baseline.json` (ver `Calidad`); la puerta sigue en verde en la corrida posterior a la ratificación.
 
