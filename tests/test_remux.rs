@@ -3,7 +3,7 @@
 //! Ver `specifications.md RF-05B` y `design.md §10 punto 3`.
 //! Ejecutar con `cargo test -- --ignored`.
 
-use denoise::ffmpeg_io::{find_ffmpeg, probe, remux_copy, verify_output_ligero};
+use denoise::ffmpeg_io::{find_ffmpeg, probe, remux_copy, verify_output_lightweight};
 use hound::{WavSpec, WavWriter};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -117,7 +117,7 @@ fn test_remux_copy_video() {
     );
 
     let verified =
-        verify_output_ligero(&ffmpeg, &out_path, probe_in.duration).expect("Verificación ligera");
+        verify_output_lightweight(&ffmpeg, &out_path, probe_in.duration).expect("Verificación ligera");
     assert!(
         verified,
         "La salida remuxada debe pasar la verificación ligera"
@@ -198,7 +198,7 @@ fn test_remux_mov_mp4_editlist_sync() {
     .expect("Remux con ignore_editlist");
 
     let verified =
-        verify_output_ligero(&ffmpeg, &out_path, probe_in.duration).expect("Verificación ligera");
+        verify_output_lightweight(&ffmpeg, &out_path, probe_in.duration).expect("Verificación ligera");
     assert!(
         verified,
         "La salida remuxada debe pasar la verificación ligera"

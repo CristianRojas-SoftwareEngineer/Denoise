@@ -5,7 +5,7 @@
 
 use crate::df::denoise_wav_with_provider;
 use crate::errors::E;
-use crate::ffmpeg_io::{extract_mono48k, probe, remux_copy, verify_output_ligero};
+use crate::ffmpeg_io::{extract_mono48k, probe, remux_copy, verify_output_lightweight};
 use crate::models::ModelsProvider;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -198,7 +198,7 @@ where
 
     // 96-99%: Verificación ligera runtime
     progress_cb(96, "verificando salida");
-    let verified = verify_output_ligero(params.ffmpeg, params.output, probe_res.duration)?;
+    let verified = verify_output_lightweight(params.ffmpeg, params.output, probe_res.duration)?;
     if !verified {
         return Err(E::EFfmpegFailed(format!(
             "Verificación ligera falló para {}",

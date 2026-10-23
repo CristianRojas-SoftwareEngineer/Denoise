@@ -110,3 +110,15 @@ representativo es el paso pendiente.
   `n/a` en vez de fallar, igual que STOI/PESQ sin su paquete.
 - Nunca uses un nombre de archivo que sombree un módulo stdlib (`struct.py`,
   `wave.py`, …): rompe cualquier script Python que corra en ese directorio.
+
+## Diagnóstico por peor caso
+
+Para evitar que los promedios globales enmascaren defectos localizados o pérdida de fonemas:
+
+```bash
+# 1. Extraer los peores segundos (tríos clean/noisy/out WAV) según ganancia SI-SDR:
+python tools/quality/worst_windows.py --set tests_data --work out/bench --top-k 3
+
+# 2. Verificar inteligibilidad con Whisper (calcula WER palabra por palabra):
+python tools/quality/wer.py --set tests_data --work out/bench
+```

@@ -59,50 +59,50 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut fallos = 0u32;
-    let mut hechos = 0u32;
+    let mut failed_count = 0u32;
+    let mut processed_count = 0u32;
 
-    for (i, linea) in spec.lines().enumerate() {
-        let linea = linea.trim();
-        if linea.is_empty() || linea.starts_with('#') {
+    for (i, line) in spec.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let Some((entrada, salida)) = linea.split_once('\t') else {
-            eprintln!("línea {} sin tabulador: {}", i + 1, linea);
-            fallos += 1;
+        let Some((input_path, output_path)) = line.split_once('\t') else {
+            eprintln!("línea {} sin tabulador: {}", i + 1, line);
+            failed_count += 1;
             continue;
         };
 
-        let entrada = PathBuf::from(entrada.trim());
-        let salida = PathBuf::from(salida.trim());
-        if let Some(parent) = salida.parent() {
+        let input_path = PathBuf::from(input_path.trim());
+        let output_path = PathBuf::from(output_path.trim());
+        if let Some(parent) = output_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        eprint!("[{}] {}", entrada.display(), entrada.display());
+        eprint!("[{}] {}", input_path.display(), input_path.display());
         let t0 = Instant::now();
-        match denoise_wav_with_provider(&entrada, &salida, &model_dir, &provider, &|cur, tot| {
-            eprint!("\r[{}] {cur:.1}/{tot:.1}s", entrada.display());
+        match denoise_wav_with_provider(&input_path, &output_path, &model_dir, &provider, &|cur, tot| {
+            eprint!("\r[{}] {cur:.1}/{tot:.1}s", input_path.display());
         }) {
             Ok(()) => {
-                eprintln!("\r[{}] ok -> {}", entrada.display(), salida.display());
+                eprintln!("\r[{}] ok -> {}", input_path.display(), output_path.display());
                 // Línea máquina a stdout para benchmark.py; el progreso va a stderr.
                 let secs = t0.elapsed().as_secs_f64().max(1e-6);
-                match wav_seconds(&salida) {
-                    Some(dur) => println!("RTF\t{}\t{:.4}", salida.display(), dur / secs),
-                    None => println!("RTF\t{}\tnan", salida.display()),
+                match wav_seconds(&output_path) {
+                    Some(dur) => println!("RTF\t{}\t{:.4}", output_path.display(), dur / secs),
+                    None => println!("RTF\t{}\tnan", output_path.display()),
                 }
-                hechos += 1;
+                processed_count += 1;
             }
             Err(e) => {
-                eprintln!("\r[{}] ERROR: {}", entrada.display(), e);
-                fallos += 1;
+                eprintln!("\r[{}] ERROR: {}", input_path.display(), e);
+                failed_count += 1;
             }
         }
     }
 
-    eprintln!("procesados={hechos} fallos={fallos}");
-    if fallos > 0 {
+    eprintln!("procesados={processed_count} fallos={failed_count}");
+    if failed_count > 0 {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS

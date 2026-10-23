@@ -25,6 +25,9 @@
 - `README.md`: nueva subsección `9.3. Benchmark de calidad de audio` y árbol de `§10` actualizado con los ficheros nuevos.
 - Batería `tests_data` de 8 a 7 clips: sale `voz_65s` (debajo del mínimo de voz activa, ya descalificado en `docs/benchmark.md` §3); `baseline.json` pierde solo su clave (resto intacto, RTF preservados), WAVs intactos para `test_golden_65s`. Sin cambio DSP. Interino hasta reemplazarlo por un clip largo representativo.
 - Puerta a prueba de no finitos en `check_baseline()`: una métrica de puerta (`GATED_LOWER`, `lufs_delta`, `rtf`) con `NaN` o `±inf` — ya sea el valor actual o el de la baseline — es ahora fallo explícito con clip, métrica y valor (antes la comparación daba `False` y la puerta aprobaba en silencio un aprobado fantasma); `None` (métrica no calculada) sigue saltándose como hasta ahora.
+- Diagnóstico por peor caso y verificación de inteligibilidad (`worst_windows.py` y `wer.py`): herramientas de análisis de peor caso que aíslan los peores segundos por ganancia SI-SDR (tríos clean/noisy/out en WAV con `--top-k` y `-n`) y calculan el WER palabra por palabra mediante Whisper (`faster-whisper`), con funciones reutilizables integradas en `metrics.py` (`calculate_wer`, `normalize_transcript`).
+- Estandarización de identificadores técnicos: migración de funciones y variables internas a inglés idiomático (`verify_output_lightweight` con alias retrocompatible `verify_output_ligero`, `check_non_finite_metric`, identificadores en el harness y scripts de quality), conservando documentación y comentarios técnicos en español.
+- Suite de pruebas unitarias para herramientas de calidad (`tools/quality/test_tools.py`): verificación de normalización de transcripciones, distancias WER (sustituciones, eliminaciones, inserciones) y ordenamiento de peores ventanas.
 
 ## 1.0.0 (2026-09-13)
 

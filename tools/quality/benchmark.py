@@ -189,22 +189,22 @@ def print_table(scores: list[metrics.ClipScore]) -> None:
 # ----------------------------------------------------------------- regresion
 
 
-def fallos_no_finitas(name: str, key: str, cur, prev) -> list[str]:
+def check_non_finite_metric(name: str, key: str, cur, prev) -> list[str]:
     """NaN o ±inf en una métrica de puerta es fallo explícito, nunca verde.
 
     `None` (métrica no calculada) no es no-finita: no genera fallo.
     """
-    out = []
-    for sufijo, v in (("", cur), (" en la baseline", prev)):
-        if v is not None and not math.isfinite(v):
-            out.append(f"{name}: {key} no finita{sufijo} ({v})")
-    return out
+    failures = []
+    for suffix, val in (("", cur), (" en la baseline", prev)):
+        if val is not None and not math.isfinite(val):
+            failures.append(f"{name}: {key} no finita{suffix} ({val})")
+    return failures
 
 
 def check_baseline(
     scores: list[metrics.ClipScore], baseline_path: Path
 ) -> list[str]:
-    """Compara contra la linea base. Devuelve la lista de regresiones."""
+    """Compara contra la línea base. Devuelve la lista de regresiones."""
     with open(baseline_path, encoding="utf-8") as f:
         base = json.load(f)["clips"]
 
@@ -212,22 +212,22 @@ def check_baseline(
     for s in scores:
         b = base.get(s.name)
         if b is None:
-            failures.append(f"{s.name}: sin linea base (agregar con --update-baseline)")
+            failures.append(f"{s.name}: sin línea base (agregar con --update-baseline)")
             continue
         for key in GATED_LOWER:
             cur, prev = getattr(s, key), b.get(key)
-            malas = fallos_no_finitas(s.name, key, cur, prev)
-            if malas:
-                failures.extend(malas)
+            non_finite_errors = check_non_finite_metric(s.name, key, cur, prev)
+            if non_finite_errors:
+                failures.extend(non_finite_errors)
                 continue
             if cur is None or prev is None:
                 continue
             if cur < prev - TOLERANCES[key]:
                 failures.append(f"{s.name}: {key} {cur:.3f} < base {prev:.3f}")
         cur_lu, prev_lu = s.lufs_delta, b.get("lufs_delta")
-        malas = fallos_no_finitas(s.name, "lufs_delta", cur_lu, prev_lu)
-        if malas:
-            failures.extend(malas)
+        non_finite_errors = check_non_finite_metric(s.name, "lufs_delta", cur_lu, prev_lu)
+        if non_finite_errors:
+            failures.extend(non_finite_errors)
         elif (
             cur_lu is not None
             and prev_lu is not None
@@ -237,9 +237,9 @@ def check_baseline(
                 f"{s.name}: LUFS {cur_lu:+.2f} fuera de banda (base {prev_lu:+.2f})"
             )
         cur_rtf, prev_rtf = s.rtf, b.get("rtf")
-        malas = fallos_no_finitas(s.name, "rtf", cur_rtf, prev_rtf)
-        if malas:
-            failures.extend(malas)
+        non_finite_errors = check_non_finite_metric(s.name, "rtf", cur_rtf, prev_rtf)
+        if non_finite_errors:
+            failures.extend(non_finite_errors)
         elif (
             cur_rtf is not None
             and prev_rtf

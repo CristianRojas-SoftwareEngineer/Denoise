@@ -4,3 +4,4 @@ soundfile>=0.12
 pystoi>=0.4
 pesq>=0.0.4
 torchmetrics>=1.9  # DNSMOS sin referencia (usa torch, librosa y onnxruntime ya instalados)
+faster-whisper>=1.0.0  # Inteligibilidad y cálculo de WER limpia vs salida DSP (wer.py)

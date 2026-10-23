@@ -26,6 +26,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
+import re
+import unicodedata
 
 import numpy as np
 
@@ -438,3 +441,61 @@ def score_clip(
         active_fraction=round(frac, 3),
         warnings=warnings,
     )
+
+
+# ---------------------------------------------------- inteligibilidad y WER
+
+_WORD_PATTERN = re.compile(r"[a-z0-9]+")
+
+
+def normalize_transcript(text: str) -> list[str]:
+    """Minúsculas, sin tildes ni puntuación: aplicado a referencia e hipótesis."""
+    decomposed = unicodedata.normalize("NFD", text.lower())
+    stripped = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    return _WORD_PATTERN.findall(stripped)
+
+
+def calculate_wer(
+    reference: list[str], hypothesis: list[str]
+) -> tuple[float, tuple[int, int, int]]:
+    """Calcula WER y desglose (sustituciones, eliminaciones, inserciones) por Levenshtein."""
+    if not reference:
+        return (0.0 if not hypothesis else 1.0), (0, 0, len(hypothesis))
+
+    num_ref, num_hyp = len(reference), len(hypothesis)
+    dp_matrix = [[0] * (num_hyp + 1) for _ in range(num_ref + 1)]
+
+    for i in range(num_ref + 1):
+        dp_matrix[i][0] = i
+    for j in range(num_hyp + 1):
+        dp_matrix[0][j] = j
+
+    for i in range(1, num_ref + 1):
+        for j in range(1, num_hyp + 1):
+            cost = 0 if reference[i - 1] == hypothesis[j - 1] else 1
+            dp_matrix[i][j] = min(
+                dp_matrix[i - 1][j] + 1,        # eliminación (deletion)
+                dp_matrix[i][j - 1] + 1,        # inserción (insertion)
+                dp_matrix[i - 1][j - 1] + cost  # sustitución (substitution)
+            )
+
+    substitutions = 0
+    deletions = 0
+    insertions = 0
+    i, j = num_ref, num_hyp
+
+    while i > 0 or j > 0:
+        if i > 0 and j > 0 and reference[i - 1] == hypothesis[j - 1]:
+            i, j = i - 1, j - 1
+        elif i > 0 and j > 0 and dp_matrix[i][j] == dp_matrix[i - 1][j - 1] + 1:
+            substitutions += 1
+            i, j = i - 1, j - 1
+        elif i > 0 and dp_matrix[i][j] == dp_matrix[i - 1][j + 0] + 1:
+            deletions += 1
+            i -= 1
+        else:
+            insertions += 1
+            j -= 1
+
+    total_errors = substitutions + deletions + insertions
+    return total_errors / num_ref, (substitutions, deletions, insertions)

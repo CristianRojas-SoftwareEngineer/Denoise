@@ -246,7 +246,7 @@ pub fn remux_copy(
 }
 
 /// Verificación ligera runtime: OUT existe >0B + duración ±0.5s + Audio AAC presente.
-pub fn verify_output_ligero(ffmpeg: &Path, out_mp4: &Path, expected_dur: f64) -> Result<bool, E> {
+pub fn verify_output_lightweight(ffmpeg: &Path, out_mp4: &Path, expected_dur: f64) -> Result<bool, E> {
     if !out_mp4.exists() {
         return Ok(false);
     }
@@ -285,4 +285,10 @@ pub fn verify_output_ligero(ffmpeg: &Path, out_mp4: &Path, expected_dur: f64) ->
     }
 
     Ok(true)
+}
+
+/// Alias para compatibilidad con contratos de documentación preexistentes.
+#[inline]
+pub fn verify_output_ligero(ffmpeg: &Path, out_mp4: &Path, expected_dur: f64) -> Result<bool, E> {
+    verify_output_lightweight(ffmpeg, out_mp4, expected_dur)
 }
