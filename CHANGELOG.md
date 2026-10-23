@@ -3,7 +3,14 @@
 ## [Unreleased]
 
 ### Features
+- Progreso granular del DSP (`src/df/mod.rs` y `src/df/net.rs`): inferencia frame a frame vía `infer_frame()` reportando avance porcentual fluido (~5% por tick) a través del callback del pipeline, evitando bloqueos visuales en la interfaz entre el 6% y 80% durante procesamientos extensos.
 - Gate de pausa en la síntesis (`src/df/mod.rs::apply_pause_gate`): VAD solo-salida sobre RMS por marcos de 1440 muestras (30 ms) — voz si `rms >= pico−30 dB`, salida de voz si `rms <= pico−45 dB` durante 3 marcos, hangover de 5 — que atenúa −25 dB las pausas con fundidos raised-cosine de 30 ms, justo antes de cuantizar a PCM16. Por qué: el residuo que el modelo deja en las pausas estaba muy por encima de la voz limpia y hundía SI-SDR, p5, STOI y PESQ; la voz queda multiplicada por 1.0 (bit-idéntica a la síntesis) y no hay ganancia, normalización global ni limiter. Validado 7/7 en la puerta de calidad sin regresiones (`docs/benchmark.md` §5) y con la mejora ratificada después en `tools/quality/baseline.json` (ver `Calidad`); la puerta sigue en verde en la corrida posterior a la ratificación.
+
+### Fixes
+- Extracción de audio PCM16 garantizada (`src/ffmpeg_io.rs`): se fuerza `-sample_fmt s16` en `extract_mono48k()` para prevenir fallos silenciosos o lectura de muestras flotantes corruptas cuando FFmpeg extrae desde contenedores con audio nativo float.
+
+### Perf
+- Cacheo del estado inicial recurrente (`src/df/net.rs`): `DpdfNetSession::load()` parsea los metadatos CSV de inicialización del modelo ONNX una única vez durante la carga en vez de en cada llamada a `infer()`, eliminando parseos redundantes y reduciendo la presión en el heap.
 
 ### Docs
 - Contrato documental actualizado tras el gate de pausa: `docs/design.md` §6 (secuencia con el paso del gate, bit-exactitud pre-gate y estado de los dorados), `docs/specifications.md` (RF-05, RNF-04, §6 y §6.1 con el estado real sin relajar umbrales), `README.md` (características, limitaciones, arquitectura con el paso del gate y estado de los dorados en §9.1; la bit-exactitud de la salida completa queda documentada en `design.md` §6 y RNF-04), `tests/data/README.md` (referencias congeladas: la del 3 s pre-gate, la del 65 s re-congelada tras el gate) y `docs/benchmark.md` §2/§5 (línea base marcada como pre-gate y resultado medido con el gate).

@@ -78,12 +78,23 @@ pub fn denoise_wav_with_provider(
         ));
     }
 
-    let enhanced_frames = session.infer(&stft_frames)?;
+    // Inferencia frame a frame encadenando estado con progreso granular (~5% por tick).
+    let total_frames = stft_frames.len();
+    let step = (total_frames / 20).max(1);
+    let mut state = session.initial_state_clone();
+    let mut enhanced_frames = Vec::with_capacity(total_frames);
+
+    for (i, frame) in stft_frames.iter().enumerate() {
+        let out_frame = session.infer_frame(frame, &mut state)?;
+        enhanced_frames.push(out_frame);
+        if (i + 1) % step == 0 || i + 1 == total_frames {
+            let done_secs = (i + 1) as f64 / total_frames as f64 * total_duration_secs;
+            progress_cb(done_secs, total_duration_secs);
+        }
+    }
 
     // Síntesis iSTFT con el recorte exacto de la referencia (`apply_istft`).
     let synthesized = stft_helper.inverse_stft(&enhanced_frames, total_samples);
-
-    progress_cb(total_duration_secs, total_duration_secs);
 
     // 5. Sin normalización ni limiter: sherpa-onnx tampoco normaliza (con
     // `attenuation_limit_db = 0`); solo recorta a [-1, 1] al cuantizar.

@@ -133,7 +133,7 @@ Comandos ffmpeg exactos a reimplementar:
 ```text
 # 1. Extracción (mono 48k exigido por DPDFNet: primera pista determinista;
 # en contenedores mov/mp4 se añade -ignore_editlist 1 antes de -i para alinear la línea de tiempo física)
-ffmpeg -y -v error [-ignore_editlist 1] -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav
+ffmpeg -y -v error [-ignore_editlist 1] -i IN -map 0:a:0 -vn -ac 1 -ar 48000 -sample_fmt s16 TMP.in.wav
 
 # 2. Remux (video intacto, audio limpio a AAC con bitrate parametrizable)
 # `-t <dur_video>` sustituye a

@@ -163,7 +163,11 @@ pub fn probe(ffmpeg: &Path, input: &Path) -> Result<ProbeResult, E> {
 }
 
 /// Extrae la primera pista de audio a WAV mono 48kHz PCM16:
-/// `ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 TMP.in.wav`
+/// `ffmpeg -y -v error -i IN -map 0:a:0 -vn -ac 1 -ar 48000 -sample_fmt s16 TMP.in.wav`
+///
+/// `-sample_fmt s16` es obligatorio: sin él FFmpeg puede emitir `flt` (32-bit float)
+/// cuando el contenedor de entrada lo sugiere, lo que causaría un fallo silencioso
+/// en `WavReader::samples::<i16>()` o datos incorrectos en el pipeline DSP.
 pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<(), E> {
     let mut cmd = Command::new(ffmpeg);
     cmd.arg("-y").arg("-v").arg("error");
@@ -179,6 +183,8 @@ pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<()
         .arg("1")
         .arg("-ar")
         .arg("48000")
+        .arg("-sample_fmt")
+        .arg("s16")
         .arg(tmp_wav);
 
     let status = cmd
