@@ -63,7 +63,9 @@ impl DpdfNetSession {
         let session = Session::builder()
             .map_err(|e| E::EModelMissing(format!("Error en SessionBuilder: {}", e)))?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
-            .map_err(|e| E::EModelMissing(format!("Error configurando nivel de optimización: {}", e)))?
+            .map_err(|e| {
+                E::EModelMissing(format!("Error configurando nivel de optimización: {}", e))
+            })?
             .with_intra_threads(threads)
             .map_err(|e| E::EModelMissing(format!("Error configurando hilos intra-op: {}", e)))?
             .commit_from_file(&models.onnx)
@@ -259,9 +261,7 @@ impl<'s> DpdfStream<'s> {
         // Vista prestada del estado (zero-copy): sin clonación de 352 KB por frame.
         let state_in =
             TensorRef::from_array_view(([self.state_buf.len()], self.state_buf.as_slice()))
-                .map_err(|e| {
-                    E::EFfmpegFailed(format!("Error creando tensor state_in: {}", e))
-                })?;
+                .map_err(|e| E::EFfmpegFailed(format!("Error creando tensor state_in: {}", e)))?;
 
         let outputs = self
             .session
@@ -301,4 +301,3 @@ impl<'s> DpdfStream<'s> {
 
 /// Cache global thread-safe para la sesión ort.
 pub static ORT_CACHE: Mutex<Option<DpdfNetSession>> = Mutex::new(None);
-

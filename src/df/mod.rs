@@ -40,7 +40,16 @@ pub fn denoise_wav_with_provider(
     provider: &dyn ModelsProvider,
     progress_cb: &dyn Fn(f64, f64),
 ) -> Result<(), E> {
-    denoise_wav_with_params(in_wav, out_wav, model_dir, provider, 0.0, GATE_CRUSH_DB, false, progress_cb)
+    denoise_wav_with_params(
+        in_wav,
+        out_wav,
+        model_dir,
+        provider,
+        0.0,
+        GATE_CRUSH_DB,
+        false,
+        progress_cb,
+    )
 }
 
 /// Procesa un archivo WAV con un proveedor de modelos específico y mezcla opcional dry-blend.
@@ -52,7 +61,16 @@ pub fn denoise_wav_with_provider_and_blend(
     dry_blend: f32,
     progress_cb: &dyn Fn(f64, f64),
 ) -> Result<(), E> {
-    denoise_wav_with_params(in_wav, out_wav, model_dir, provider, dry_blend, GATE_CRUSH_DB, false, progress_cb)
+    denoise_wav_with_params(
+        in_wav,
+        out_wav,
+        model_dir,
+        provider,
+        dry_blend,
+        GATE_CRUSH_DB,
+        false,
+        progress_cb,
+    )
 }
 
 /// Procesa un archivo WAV con proveedor, dry-blend, atenuación de pause gate
@@ -225,9 +243,8 @@ fn process_channel_samples(
 ) -> Result<Vec<f32>, E> {
     let total_samples = samples_f32.len();
     let padded = stft_helper.pad_signal(samples_f32);
-    let total_frames = (padded.len().saturating_sub(crate::df::stft::FFT_SIZE))
-        / crate::df::stft::HOP_SIZE
-        + 1;
+    let total_frames =
+        (padded.len().saturating_sub(crate::df::stft::FFT_SIZE)) / crate::df::stft::HOP_SIZE + 1;
 
     if total_frames <= crate::df::stft::FFT_SIZE / crate::df::stft::HOP_SIZE {
         return Err(E::EInvalidInput(

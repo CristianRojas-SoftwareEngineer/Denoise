@@ -70,8 +70,7 @@ impl BiquadState {
     #[inline]
     fn process(&mut self, x: f64) -> f64 {
         let c = &self.coeffs;
-        let y = c.b0 * x + c.b1 * self.x1 + c.b2 * self.x2
-              - c.a1 * self.y1 - c.a2 * self.y2;
+        let y = c.b0 * x + c.b1 * self.x1 + c.b2 * self.x2 - c.a1 * self.y1 - c.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;

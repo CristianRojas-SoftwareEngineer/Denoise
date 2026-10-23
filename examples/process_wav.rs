@@ -133,11 +133,7 @@ fn main() -> ExitCode {
     let spec = match std::fs::read_to_string(&harness.pairs_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!(
-                "no se pudo leer {}: {}",
-                harness.pairs_path.display(),
-                e
-            );
+            eprintln!("no se pudo leer {}: {}", harness.pairs_path.display(), e);
             return ExitCode::from(2);
         }
     };
