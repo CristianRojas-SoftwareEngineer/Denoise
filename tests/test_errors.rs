@@ -230,6 +230,20 @@ fn test_pause_gate_db_range() {
 }
 
 #[test]
+fn test_target_lufs_range() {
+    let bad_lufs = [-100.0_f64, -36.1, -11.9, 0.0, 10.0];
+    for &lufs in &bad_lufs {
+        let is_valid = (-36.0..=-12.0).contains(&lufs);
+        assert!(!is_valid, "target-lufs {} debería ser inválido", lufs);
+    }
+    let good_lufs = [-36.0_f64, -23.0, -16.0, -14.0, -12.0];
+    for &lufs in &good_lufs {
+        let is_valid = (-36.0..=-12.0).contains(&lufs);
+        assert!(is_valid, "target-lufs {} debería ser válido", lufs);
+    }
+}
+
+#[test]
 fn test_output_name_lot_multi_error() {
     let cwd = Path::new("/workspace");
     let inputs = vec![

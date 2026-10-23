@@ -107,6 +107,7 @@ fn test_remux_copy_video() {
         &out_path,
         192,
         probe_in.duration,
+        None,
     )
     .expect("Remux exitoso");
 
@@ -154,6 +155,7 @@ fn test_remux_duracion_contenedor() {
         &out_path,
         192,
         probe_in.duration,
+        None,
     )
     .expect("Remux con duración de contenedor");
 
@@ -194,6 +196,7 @@ fn test_remux_mov_mp4_editlist_sync() {
         &out_path,
         192,
         probe_in.duration,
+        None,
     )
     .expect("Remux con ignore_editlist");
 

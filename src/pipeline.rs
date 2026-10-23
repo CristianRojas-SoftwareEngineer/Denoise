@@ -28,6 +28,7 @@ pub struct PipelineParams<'a> {
     pub dry_blend: f32,
     pub pause_gate_db: f64,
     pub highpass: bool,
+    pub target_lufs: Option<f64>,
     pub model_dir: &'a Path,
     pub models_provider: &'a dyn ModelsProvider,
     pub overwrite: bool,
@@ -195,6 +196,7 @@ where
         &out_part_mp4,
         params.audio_bitrate,
         probe_res.duration,
+        params.target_lufs,
     )?;
     progress_cb(90, "remux completado");
 

@@ -73,6 +73,14 @@ pub struct Cli {
     #[arg(long = "highpass")]
     pub highpass: bool,
 
+    /// Normalizar sonoridad a estándar de internet (-16 LUFS)
+    #[arg(long = "normalize")]
+    pub normalize: bool,
+
+    /// Nivel de sonoridad objetivo en LUFS EBU R128 (-36 a -12, ej: -16 para web/podcast, -23 para broadcast)
+    #[arg(long = "target-lufs")]
+    pub target_lufs: Option<f64>,
+
     /// Directorio para almacenar/buscar modelos ONNX (defecto: ~/.cache/denoise/models)
     #[arg(long = "model-dir")]
     pub model_dir: Option<PathBuf>,
@@ -585,6 +593,23 @@ pub fn run() -> anyhow::Result<()> {
         std::process::exit(err.exit_code());
     }
 
+    // Determinar y validar target-lufs (-36.0 a -12.0) si se especificó --normalize o --target-lufs
+    let effective_lufs = match (cli.normalize, cli.target_lufs) {
+        (_, Some(lufs)) => {
+            if !(-36.0..=-12.0).contains(&lufs) {
+                let err = E::EInvalidInput(format!(
+                    "El valor de target-lufs {:.1} LUFS está fuera del rango permitido (-36 a -12)",
+                    lufs
+                ));
+                eprintln!("Error: {}", err);
+                std::process::exit(err.exit_code());
+            }
+            Some(lufs)
+        }
+        (true, None) => Some(-16.0),
+        (false, None) => None,
+    };
+
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
     // Expansión
@@ -669,6 +694,7 @@ pub fn run() -> anyhow::Result<()> {
         dry_blend: cli.dry_blend,
         pause_gate_db: cli.pause_gate_db,
         highpass: cli.highpass,
+        target_lufs: effective_lufs,
         overwrite: cli.overwrite,
         skip_existing: cli.skip_existing,
         json_mode: cli.json,
@@ -689,6 +715,7 @@ pub struct BatchParams<'a> {
     pub dry_blend: f32,
     pub pause_gate_db: f64,
     pub highpass: bool,
+    pub target_lufs: Option<f64>,
     pub overwrite: bool,
     pub skip_existing: bool,
     pub json_mode: bool,
@@ -738,6 +765,7 @@ pub fn process_batch(items: &[ResolvedItem], params: &BatchParams) -> i32 {
             dry_blend: params.dry_blend,
             pause_gate_db: params.pause_gate_db,
             highpass: params.highpass,
+            target_lufs: params.target_lufs,
             model_dir: params.model_dir,
             models_provider: params.models_provider,
             overwrite: params.overwrite,

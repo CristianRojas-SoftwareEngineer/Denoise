@@ -211,6 +211,8 @@ Uso: denoise [OPCIONES] <INPUT>...
 | `--dry-blend <FACTOR>` | Opción | `0.0` | Mezcla opcional de señal original con la procesada (rango 0.0 a 1.0; 0.0 = salida 100% denoised). |
 | `--pause-gate-db <DB>` | Opción | `-25` | Nivel de atenuación en pausas sin voz en dB (rango -40 a 0; 0 desactiva el gate). |
 | `--highpass` | Flag | `false` | Activa filtro pasa-altos IIR a 70 Hz para eliminar rumble subgrave post-inferencia. |
+| `--normalize` | Flag | `false` | Normaliza la sonoridad del audio remuxado a -16.0 LUFS EBU R128 (estándar podcasts/web). |
+| `--target-lufs <LUFS>` | Opción | `None` | Nivel objetivo de sonoridad EBU R128 en LUFS (-36 a -12, ej: -16 podcasts/web, -23 broadcast). |
 | `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
 | `--overwrite` | Flag | `false` | Sobrescribe el destino si ya existe (excluyente con `--skip-existing`). Sin flags + destino existe → error `E_OUTPUT_EXISTS` (exit `2`). |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |
@@ -246,7 +248,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 - **Solo el primer stream de video**: se copia `0:v:0`; el resto de streams de video se descartan.
 - **Sin subtítulos ni metadatos**: los subtítulos, capítulos y metadatos del contenedor original **no** se copian a la salida.
 - **Procesamiento secuencial**: los videos de un lote se procesan uno a uno, sin paralelismo. La inferencia es CPU-only (no usa GPU).
-- **Sin normalización ni loudness**: no hay ganancia global ni limiter; la voz conserva la escala exacta del modelo y solo las pausas se atenúan (gate de pausa, −25 dB). Si el audio resultante queda muy bajo de volumen, es el comportamiento esperado; la herramienta no aplica ganancia automática.
+- **Normalización de sonoridad opcional**: por defecto no hay alteración de escala en el remux (la voz conserva la escala exacta del modelo y solo las pausas se atenúan a −25 dB). Si se desea un nivel homogéneo para podcasts o web, se puede activar con `--normalize` (-16 LUFS por defecto) o parametrizar con `--target-lufs <DB>`.
 - **Remux a MP4**: la salida es siempre `.mp4` (con stream copy del video), independientemente de la extensión del archivo de entrada.
 
 ---

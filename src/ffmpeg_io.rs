@@ -201,8 +201,8 @@ pub fn extract_mono48k(ffmpeg: &Path, input: &Path, tmp_wav: &Path) -> Result<()
     Ok(())
 }
 
-/// Remuxa el video original con el audio procesado a AAC:
-/// `ffmpeg -y -v error -i IN -i TMP.out.wav -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <bitrate>k -t <dur_video> OUT.part.mp4`
+/// Remuxa el video original con el audio procesado a AAC (con normalización loudnorm opcional):
+/// `ffmpeg -y -v error -i IN -i TMP.out.wav -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a <bitrate>k [-af loudnorm=I=<target_lufs>:TP=-1.5:LRA=11] -t <dur_video> OUT.part.mp4`
 pub fn remux_copy(
     ffmpeg: &Path,
     input_video: &Path,
@@ -210,6 +210,7 @@ pub fn remux_copy(
     out_part_mp4: &Path,
     bitrate_kbps: u32,
     dur_video: f64,
+    target_lufs: Option<f64>,
 ) -> Result<(), E> {
     let dur_str = format!("{:.3}", dur_video);
     let bitrate_str = format!("{}k", bitrate_kbps);
@@ -232,8 +233,14 @@ pub fn remux_copy(
         .arg("-c:a")
         .arg("aac")
         .arg("-b:a")
-        .arg(&bitrate_str)
-        .arg("-t")
+        .arg(&bitrate_str);
+
+    if let Some(lufs) = target_lufs {
+        cmd.arg("-af")
+            .arg(format!("loudnorm=I={:.1}:TP=-1.5:LRA=11", lufs));
+    }
+
+    cmd.arg("-t")
         .arg(&dur_str)
         .arg(out_part_mp4);
 
