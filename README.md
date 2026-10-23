@@ -56,10 +56,11 @@ Para un proceso ya descargado o para redes restringidas, usa `--model-dir` con u
 4. [📖 Guía de Uso y Ejemplos](#4--guía-de-uso-y-ejemplos)
    - [4.1. Procesamiento de un Video o Audio Individual](#41-procesamiento-de-un-video-o-audio-individual)
    - [4.2. Directorio y Nombre de Salida Personalizado](#42-directorio-y-nombre-de-salida-personalizado)
-   - [4.3. Procesamiento por Lote con Prefijos y Bitrate de Audio](#43-procesamiento-por-lote-con-prefijos-y-bitrate-de-audio)
-   - [4.4. Modo Recursivo para Cursos o Grabaciones Múltiples](#44-modo-recursivo-para-cursos-o-grabaciones-múltiples)
-   - [4.5. Integración con Pipelines de Automatización (Salida JSON)](#45-integración-con-pipelines-de-automatización-salida-json)
-   - [4.6. Rutas Personalizadas para Entornos Especiales](#46-rutas-personalizadas-para-entornos-especiales)
+   - [4.3. Preset de Calidad `studio`](#43-preset-de-calidad-studio)
+   - [4.4. Procesamiento por Lote con Prefijos y Bitrate de Audio](#44-procesamiento-por-lote-con-prefijos-y-bitrate-de-audio)
+   - [4.5. Modo Recursivo para Cursos o Grabaciones Múltiples](#45-modo-recursivo-para-cursos-o-grabaciones-múltiples)
+   - [4.6. Integración con Pipelines de Automatización (Salida JSON)](#46-integracion-con-pipelines-de-automatizacion-salida-json)
+   - [4.7. Rutas Personalizadas para Entornos Especiales](#47-rutas-personalizadas-para-entornos-especiales)
 5. [🎛️ Referencia de Comandos CLI](#5--referencia-de-comandos-cli)
    - [5.1. Códigos de Salida del Proceso](#51-códigos-de-salida-del-proceso)
 6. [⚠️ Limitaciones Conocidas](#6--limitaciones-conocidas)
@@ -158,7 +159,22 @@ denoise "./raw_takes/" \
   --audio-bitrate 256
 ```
 
-### 4.4. Modo Recursivo para Cursos o Grabaciones Múltiples
+### 4.3. Preset de Calidad `studio`
+
+Para obtener la máxima calidad de salida sin memorizar combinaciones de flags, usa el preset `studio`, que agrupa alto bitrate, filtro pasa-altos y normalización EBU R128:
+
+```bash
+denoise "podcast_episodio_12.mp3" --preset studio
+# Salida: podcast_episodio_12_denoised.mp3 (320 kbps, highpass, -16 LUFS)
+
+# Las flags individuales sobrescriben el preset:
+denoise "boda.mp4" --preset studio --audio-bitrate 192
+# Salida: boda_denoised.mp4 (192 kbps —flag individual gana—, highpass, -16 LUFS)
+```
+
+> **Nota:** el preset `studio` no modifica el núcleo DSP (DPDFNet es siempre el mismo). El salto audible real proviene de `--highpass` y `--normalize`. En salidas WAV PCM16, el bitrate (320 vs 192) no cambia el audio. Ver [docs/design.md §4.2](#42-preset-studio) para la tabla completa de valores y precedencia.
+
+### 4.5. Modo Recursivo para Cursos o Grabaciones Múltiples
 Explora subdirectorios completos y omite archivos ya procesados en ejecuciones anteriores:
 ```bash
 denoise "./Curso_Rust_2026/" \
@@ -173,7 +189,7 @@ denoise "./Curso_Rust_2026/" \
 > [!NOTE]
 > Con `--recursive` se excluyen del escaneo los archivos `*<suffix>.mp4` (evita `*_denoised_denoised.mp4`) y el `output-dir` si está anidado dentro del directorio de entrada. Exclusiones fuera de `cwd` se anuncian solo con `--verbose`.
 
-### 4.5. Integración con Pipelines de Automatización (Salida JSON)
+### 4.6. Integración con Pipelines de Automatización (Salida JSON)
 Permite capturar el estado y métricas de procesamiento directamente desde scripts de Node.js, Python o CI/CD. Valida siempre el lote antes de ejecutarlo:
 ```bash
 denoise "./ingest/" --output-dir "./distribution/" --dry-run
@@ -194,7 +210,7 @@ Como cada línea es un objeto JSON independiente, se puede filtrar en streaming:
 denoise "./ingest/" --output-dir "./distribution/" --json | jq -c 'select(.status != "ok")'
 ```
 
-### 4.6. Rutas Personalizadas para Entornos Especiales
+### 4.7. Rutas Personalizadas para Entornos Especiales
 Si FFmpeg o los modelos se encuentran en rutas personalizadas o no estándar:
 ```bash
 denoise "podcast_episode_12.mp4" \
@@ -224,6 +240,7 @@ Uso: denoise [OPCIONES] <INPUT>...
 | `--normalize` | Flag | `false` | Normaliza la sonoridad del audio remuxado a -16.0 LUFS EBU R128 (estándar podcasts/web). |
 | `--target-lufs <LUFS>` | Opción | `None` | Nivel objetivo de sonoridad EBU R128 en LUFS (-36 a -12, ej: -16 podcasts/web, -23 broadcast). |
 | `--stereo` | Flag | `false` | Preserva audio estéreo de 2 canales procesando cada canal independientemente con DPDFNet. |
+| `--preset <NOMBRE>` | Opción | `None` | Preset de calidad predefinido que aplica una combinación coherente de flags de empaquetado y post-procesamiento. Las flags individuales sobrescriben los valores del preset. Preset disponible: `studio` (320 kbps, highpass, -16 LUFS). El preset **no modifica el núcleo DSP** (DPDFNet es siempre el mismo); solo afecta empaquetado y post-procesamiento. |
 | `--recursive` | Flag | `false` | Búsqueda recursiva de medios al especificar directorios. |
 | `--overwrite` | Flag | `false` | Sobrescribe el destino si ya existe (excluyente con `--skip-existing`). Sin flags + destino existe → error `E_OUTPUT_EXISTS` (exit `2`). |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |

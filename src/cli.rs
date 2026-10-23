@@ -5,6 +5,7 @@
 
 use crate::errors::E;
 use crate::ffmpeg_io::{find_ffmpeg, verify_ffmpeg};
+use crate::preset::{EgressParams, Preset, DEFAULT_PARAMS};
 use clap::Parser;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -60,17 +61,23 @@ pub struct Cli {
     #[arg(long = "skip-existing", conflicts_with = "overwrite")]
     pub skip_existing: bool,
 
+    /// Preset de calidad (ej: studio). Aplica una combinación predefinida de
+    /// parámetros de empaquetado y post-procesamiento. Las flags individuales
+    /// sobrescriben los valores del preset.
+    #[arg(long = "preset", value_enum)]
+    pub preset: Option<Preset>,
+
     /// Bitrate del audio de salida en kbps (64-320, defecto: 192); AAC en video, códec con pérdida en audio
-    #[arg(long = "audio-bitrate", default_value = "192")]
-    pub audio_bitrate: u32,
+    #[arg(long = "audio-bitrate")]
+    pub audio_bitrate: Option<u32>,
 
     /// Fracción de mezcla con el audio original (0.0 = 100% limpio, 1.0 = 100% original; defecto: 0.0)
-    #[arg(long = "dry-blend", default_value = "0.0")]
-    pub dry_blend: f32,
+    #[arg(long = "dry-blend")]
+    pub dry_blend: Option<f32>,
 
     /// Nivel de atenuación en pausas sin voz en dB (-40 a 0, defecto: -25; 0 desactiva el gate)
-    #[arg(long = "pause-gate-db", default_value = "-25")]
-    pub pause_gate_db: f64,
+    #[arg(long = "pause-gate-db")]
+    pub pause_gate_db: Option<f64>,
 
     /// Activar filtro pasa-altos a 70 Hz para suprimir rumble subgrave
     #[arg(long = "highpass")]
@@ -606,52 +613,51 @@ pub fn run() -> anyhow::Result<()> {
         std::process::exit(0);
     }
 
-    // Validar bitrate estructuralmente
-    if !(64..=320).contains(&cli.audio_bitrate) {
+    // Resolver parámetros de empaquetado/post-procesamiento con precedencia:
+    // defaults → preset → flags individuales.
+    let egress = resolve_egress_params(&cli);
+
+    // Validar bitrate estructuralmente (64-320)
+    if !(64..=320).contains(&egress.audio_bitrate) {
         let err = E::EInvalidInput(format!(
             "El bitrate de audio {} kbps está fuera del rango permitido (64-320)",
-            cli.audio_bitrate
+            egress.audio_bitrate
         ));
         eprintln!("Error: {}", err);
         std::process::exit(err.exit_code());
     }
 
     // Validar dry-blend (0.0 a 1.0)
-    if !(0.0..=1.0).contains(&cli.dry_blend) {
+    if !(0.0..=1.0).contains(&egress.dry_blend) {
         let err = E::EInvalidInput(format!(
             "El valor de dry-blend {} está fuera del rango permitido (0.0 - 1.0)",
-            cli.dry_blend
+            egress.dry_blend
         ));
         eprintln!("Error: {}", err);
         std::process::exit(err.exit_code());
     }
 
     // Validar pause-gate-db (-40.0 a 0.0)
-    if !(-40.0..=0.0).contains(&cli.pause_gate_db) {
+    if !(-40.0..=0.0).contains(&egress.pause_gate_db) {
         let err = E::EInvalidInput(format!(
             "El valor de pause-gate-db {} dB está fuera del rango permitido (-40 a 0)",
-            cli.pause_gate_db
+            egress.pause_gate_db
         ));
         eprintln!("Error: {}", err);
         std::process::exit(err.exit_code());
     }
 
-    // Determinar y validar target-lufs (-36.0 a -12.0) si se especificó --normalize o --target-lufs
-    let effective_lufs = match (cli.normalize, cli.target_lufs) {
-        (_, Some(lufs)) => {
-            if !(-36.0..=-12.0).contains(&lufs) {
-                let err = E::EInvalidInput(format!(
-                    "El valor de target-lufs {:.1} LUFS está fuera del rango permitido (-36 a -12)",
-                    lufs
-                ));
-                eprintln!("Error: {}", err);
-                std::process::exit(err.exit_code());
-            }
-            Some(lufs)
+    // Validar target-lufs (-36.0 a -12.0) si está presente.
+    if let Some(lufs) = egress.target_lufs {
+        if !(-36.0..=-12.0).contains(&lufs) {
+            let err = E::EInvalidInput(format!(
+                "El valor de target-lufs {:.1} LUFS está fuera del rango permitido (-36 a -12)",
+                lufs
+            ));
+            eprintln!("Error: {}", err);
+            std::process::exit(err.exit_code());
         }
-        (true, None) => Some(-16.0),
-        (false, None) => None,
-    };
+    }
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
@@ -733,12 +739,12 @@ pub fn run() -> anyhow::Result<()> {
         ffmpeg: &ffmpeg_bin,
         model_dir: &model_dir,
         models_provider: &models_provider,
-        audio_bitrate: cli.audio_bitrate,
-        dry_blend: cli.dry_blend,
-        pause_gate_db: cli.pause_gate_db,
-        highpass: cli.highpass,
-        stereo: cli.stereo,
-        target_lufs: effective_lufs,
+        audio_bitrate: egress.audio_bitrate,
+        dry_blend: egress.dry_blend,
+        pause_gate_db: egress.pause_gate_db,
+        highpass: egress.highpass,
+        stereo: egress.stereo,
+        target_lufs: egress.target_lufs,
         overwrite: cli.overwrite,
         skip_existing: cli.skip_existing,
         json_mode: cli.json,
@@ -748,6 +754,61 @@ pub fn run() -> anyhow::Result<()> {
 
     let exit_code = process_batch(&resolved, &params);
     std::process::exit(exit_code);
+}
+
+/// Resuelve los parámetros de empaquetado y post-procesamiento (egress)
+/// con la precedencia: **defaults → preset → flags individuales**.
+///
+/// Cuando `--preset` está ausente y no se pasan flags individuales,
+/// se devuelven los valores por defecto canónicos (`DEFAULT_PARAMS`).
+pub fn resolve_egress_params(cli: &Cli) -> EgressParams {
+    // 1. Valores por defecto.
+    let mut p = EgressParams {
+        audio_bitrate: DEFAULT_PARAMS.audio_bitrate,
+        highpass: DEFAULT_PARAMS.highpass,
+        target_lufs: DEFAULT_PARAMS.target_lufs,
+        pause_gate_db: DEFAULT_PARAMS.pause_gate_db,
+        dry_blend: DEFAULT_PARAMS.dry_blend,
+        stereo: DEFAULT_PARAMS.stereo,
+    };
+
+    // 2. Valores del preset (si --preset se pasa).
+    if let Some(preset) = cli.preset {
+        let pp = preset.egress_params();
+        p.audio_bitrate = pp.audio_bitrate;
+        p.highpass = pp.highpass;
+        p.target_lufs = pp.target_lufs;
+        p.pause_gate_db = pp.pause_gate_db;
+        p.dry_blend = pp.dry_blend;
+        p.stereo = pp.stereo;
+    }
+
+    // 3. Flags individuales (si el usuario las pasa explícitamente).
+    // Los booleans se combinan con OR ya que no hay forma limpia de anular
+    // un booleano del preset en v1 (limitación documentada).
+    if let Some(v) = cli.audio_bitrate {
+        p.audio_bitrate = v;
+    }
+    if let Some(v) = cli.dry_blend {
+        p.dry_blend = v;
+    }
+    if let Some(v) = cli.pause_gate_db {
+        p.pause_gate_db = v;
+    }
+    if cli.normalize {
+        p.target_lufs = Some(-16.0);
+    }
+    if let Some(v) = cli.target_lufs {
+        p.target_lufs = Some(v);
+    }
+    if cli.highpass {
+        p.highpass = true;
+    }
+    if cli.stereo {
+        p.stereo = true;
+    }
+
+    p
 }
 
 /// Parámetros de ejecución para el procesamiento de lotes.

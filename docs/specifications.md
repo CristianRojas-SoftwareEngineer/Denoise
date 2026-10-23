@@ -20,6 +20,7 @@
    - [RF-08 Lote robusto, dry-run, resumen JSON/humano](#rf-08-lote-robusto-dry-run-resumen-jsonhumano)
    - [RF-09 Temporales, cancelación y limpieza](#rf-09-temporales-cancelación-y-limpieza)
    - [RF-10 Ayuda, versión y verbosidad](#rf-10-ayuda-versión-y-verbosidad)
+   - [RF-11 Preset de calidad studio](#rf-11-preset-de-calidad-studio)
 3. [Requerimientos no funcionales](#3-requerimientos-no-funcionales)
    - [RNF-01 Autocontención](#rnf-01-autocontención)
    - [RNF-02 Portabilidad](#rnf-02-portabilidad)
@@ -147,6 +148,14 @@ CLI offline-first que limpia ruido de voz de 1..N medios (video o audio), parame
 * Niveles: defecto fases, `--verbose` añade depuración a `stderr`. Sin nivel silencioso separado: `--json` ya es apto para scripting.
 * **Aceptación:** `denoise --help` es suficiente para usar sin leer este doc; con `--verbose` se pueden inspeccionar los temporales conservados de una ejecución que falló.
 
+### RF-11 Preset de calidad `studio`
+* **ID:** RF-11. **Prioridad:** Media.
+* Flag `--preset <NOMBRE>` (clap `ValueEnum`) aplica una combinación predefinida de parámetros de empaquetado y post-procesamiento. El preset **no modifica el núcleo DSP** (DPDFNet es siempre el mismo); solo define empaquetado y post-procesamiento en la frontera de entrada (CLI).
+* Preset disponible en v1: `studio` (bitrate 320 kbps, `highpass=true`, `target_lufs=Some(-16.0)`, `pause_gate_db=-25.0`, `dry_blend=0.0`, `stereo=false`).
+* Precedencia de resolución: **defaults → preset → flags individuales**. Las flags individuales (`--audio-bitrate`, `--dry-blend`, `--pause-gate-db`, `--highpass`, `--normalize`, `--target-lufs`, `--stereo`) sobrescriben los valores del preset. Todos los valores del preset viven en `src/preset.rs` (único punto de verdad); no hay fallbacks ni wrappers obsoletos.
+* **Limitación de v1:** los campos booleanos (`highpass`, `normalize`, `stereo`) se mantienen como `bool`; no hay forma limpia de anular un booleano del preset (ej. `--no-highpass`). El usuario puede no usar el preset y pasar flags individuales en su lugar.
+* **Aceptación:** `denoise entrada.mp3 --preset studio` aplica highpass + -16 LUFS + 320 kbps; `denoise entrada.mp3 --preset studio --audio-bitrate 192` usa 192 kbps (flag individual gana). Ver `docs/design.md §4.2` para tabla de valores completa.
+
 ## 3. Requerimientos no funcionales
 
 ### RNF-01 Autocontención
@@ -194,6 +203,7 @@ CLI offline-first que limpia ruido de voz de 1..N medios (video o audio), parame
 | `--model-dir` | RF-06 |
 | `--ffmpeg-path` | RF-07 |
 | `--dry-run, --json, --verbose` | RF-08, RF-09, RF-10 |
+| `--preset` | RF-11 |
 | `cargo build --release` + `cargo test` | RNF-02 |
 
 ## 5. Casos borde obligatorios

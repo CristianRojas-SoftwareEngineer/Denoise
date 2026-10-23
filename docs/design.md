@@ -11,6 +11,9 @@
 2. [Principios de diseño](#2-principios-de-diseño)
 3. [Estructura mínima propuesta](#3-estructura-mínima-propuesta)
 4. [Contrato CLI (v1)](#4-contrato-cli-v1)
+   - [4.1. Presets de calidad](#41-presets-de-calidad)
+   - [4.2. Preset `studio`](#42-preset-studio)
+   - [4.3. Precedencia de resolución](#43-precedencia-de-resolución)
 5. [Pipeline por medio](#5-pipeline-por-medio)
 6. [Especificación DSP del módulo `df/` (no cambiar valores)](#6-especificación-dsp-del-módulo-df-no-cambiar-valores)
 7. [Módulo `models.rs`: modelo autocontenido](#7-módulo-modelsrs-modelo-autocontenido)
@@ -93,6 +96,69 @@ denoise INPUT... [-o/--output-name NAME] [--output-dir DIR] [--prefix STR] [--su
   [--audio-bitrate KBPS] [--model-dir DIR] [--ffmpeg-path PATH]
   [--dry-run] [--json] [--verbose] [-V/--version]
 ```
+
+### 4.1. Presets de calidad
+
+| Flag | Tipo | Valor por Defecto | Descripción |
+|:--- |:--- |:--- |:--- |
+| `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio de salida en kbps (rango 64-320) (ej: 128, 192, 256). Aplica al AAC del video y a `.mp3/.m4a/.aac/.ogg/.opus`; `.wav`/`.flac` son sin pérdida. |
+| `--dry-blend <FACTOR>` | Opción | `0.0` | Mezcla opcional de señal original con la procesada (rango 0.0 a 1.0; 0.0 = salida 100% denoised). |
+| `--pause-gate-db <DB>` | Opción | `-25` | Nivel de atenuación en pausas sin voz en dB (rango -40 a 0; 0 desactiva el gate). |
+| `--highpass` | Flag | `false` | Activa filtro pasa-altos IIR a 70 Hz para eliminar rumble subgrave post-inferencia. |
+| `--normalize` | Flag | `false` | Normaliza la sonoridad del audio remuxado a -16.0 LUFS EBU R128 (estándar podcasts/web). |
+| `--target-lufs <LUFS>` | Opción | `None` | Nivel objetivo de sonoridad EBU R128 en LUFS (-36 a -12, ej: -16 podcasts/web, -23 broadcast). |
+| `--stereo` | Flag | `false` | Preservar audio estéreo de 2 canales procesando cada canal independientemente con DPDFNet. |
+| `--preset <NOMBRE>` | Opción | `None` | Preset de calidad predefinido. Aplica una combinación coherente de flags de empaquetado y post-procesamiento. Las flags individuales sobrescriben los valores del preset. Presets disponibles: `studio`. |
+
+### 4.2. Preset `studio`
+
+El preset `studio` agrupa una combinación coherente de opciones de empaquetado y post-procesamiento para obtener la mejor calidad de salida sin que el usuario deba inferir ni memorizar qué combinación de flags suena mejor.
+
+**Importante:** el preset **no modifica el núcleo DSP** (el modelo DPDFNet es siempre el mismo). Solo define el mejor empaquetado y post-procesamiento disponible en la frontera de entrada (CLI).
+
+| Parámetro | Valor en preset `studio` | Valor por defecto | Nota |
+|-----------|--------------------------|-------------------|------|
+| `audio_bitrate` | 320 | 192 | Máximo permitido; solo afecta si salida es mp3/aac/ogg/opus (no a WAV PCM16). |
+| `highpass` | `true` | `false` | Filtro pasa-altos a 70 Hz contra rumble subgrave. |
+| `target_lufs` | `Some(-16.0)` | `None` | Normalización EBU R128 web/podcast. |
+| `pause_gate_db` | -25.0 | -25.0 | Atenuación de pausas sin voz (igual que default). |
+| `dry_blend` | 0.0 | 0.0 | 100 % señal procesada (igual que default). |
+| `stereo` | `false` | `false` | Seguir la entrada; no forzar estéreo. |
+
+> **Honestidad documental:** en salida WAV el bitrate no cambia el audio PCM16 sin pérdida. El salto audible real del preset `studio` respecto al default proviene de `--highpass` y `--normalize` (vía `target_lufs`).
+
+### 4.3. Precedencia de resolución
+
+La resolución de parámetros de empaquetado y post-procesamiento aplica la siguiente precedencia (de menor a mayor prioridad):
+
+```text
+defaults (hardcodeados en src/preset.rs)
+    ↓ sobrescritos por
+preset (si --preset se pasa)
+    ↓ sobrescritos por
+flags individuales (si el usuario las pasa explícitamente)
+```
+
+Detalles de resolución por campo (implementados en `src/cli.rs::resolve_egress_params`):
+
+- `audio_bitrate`: `cli.audio_bitrate.unwrap_or(preset_val.or(default_192))`
+- `highpass`: `cli.highpass || preset_highpass`
+- `target_lufs`: `cli.target_lufs.or(preset_target_lufs)`
+- `pause_gate_db`: `cli.pause_gate_db.unwrap_or(preset_val.or(default_-25))`
+- `dry_blend`: `cli.dry_blend.unwrap_or(preset_val.or(default_0.0))`
+- `stereo`: `cli.stereo || preset_stereo`
+
+**Ejemplo de uso:**
+```bash
+denoise podcast.mp3 --preset studio
+# Salida: podcast_denoised.mp3 (320 kbps AAC, highpass activado, -16 LUFS)
+
+denoise boda.mp4 --preset studio --audio-bitrate 192
+# Salida: boda_denoised.mp4 (192 kbps AAC —flag individual gana sobre preset—,
+#   highpass activado, -16 LUFS por normalize implícito del preset)
+```
+
+> **Limitación de v1:** los campos booleanos (`highpass`, `normalize`, `stereo`) se mantienen como `bool`; no hay forma limpia de anular un booleano del preset en v1 (ej. `--no-highpass`). El usuario puede no usar el preset y pasar flags individuales en su lugar.
 
 * `INPUT...`: 1..N rutas. Cada una puede ser un archivo de video (`mp4/mov/mkv/webm/avi`) o de audio (`wav/mp3/m4a/aac/flac/ogg/opus`), o un directorio. Entry-point: bin `denoise` desde `src/main.rs` sobre lib `src/lib.rs` (`cargo run -- ...` equivalente, `version` desde `Cargo.toml`). Los tests de integración importan la lib, nunca el bin.
 * `--audio-bitrate`: bitrate del audio de salida en kbps (defecto `192`, rango `64-320`); aplica al AAC del video y a los códecs con pérdida del audio (`.mp3`, `.m4a`, `.aac`, `.ogg`, `.opus`). `.wav` y `.flac` son sin pérdida y lo ignoran.
