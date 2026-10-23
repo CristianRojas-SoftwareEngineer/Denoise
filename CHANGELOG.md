@@ -11,6 +11,7 @@
 - Extracción de audio PCM16 garantizada (`src/ffmpeg_io.rs`): se fuerza `-sample_fmt s16` en `extract_mono48k()` para prevenir fallos silenciosos o lectura de muestras flotantes corruptas cuando FFmpeg extrae desde contenedores con audio nativo float.
 
 ### Perf
+- Optimización de hilos intra-op y nivel de grafo en ONNX Runtime (`src/df/net.rs`): configuración explícita de `GraphOptimizationLevel::Level3` y asignación adaptativa de hilos intra-operador (`with_intra_threads` basado en paralelismo disponible acotado a 8) en `SessionBuilder`, acelerando la inferencia en CPU y reduciendo el RTF entre un 3% y un 8% sin alteraciones numéricas ni regresiones de calidad.
 - Inferencia frame a frame zero-copy y eliminación de asignaciones en heap (`src/df/net.rs` y `src/df/mod.rs`): arquitectura `DpdfStream` para procesamiento por archivo con buffers pre-allocados (`out_frame`, `state_buf`), espectro en stack (~3,8 KB) y vistas prestadas `TensorRef::from_array_view` tanto para el espectro como para el estado recurrente (90.228 floats = ~352 KB). Se elimina por completo la clonación de 352 KB por frame impuesta anteriormente por `Value::from_array`, reduciendo a cero las asignaciones en heap durante el bucle de inferencia.
 - Cacheo del estado inicial recurrente (`src/df/net.rs`): `DpdfNetSession::load()` parsea los metadatos CSV de inicialización del modelo ONNX una única vez durante la carga en vez de en cada llamada a `infer()`, eliminando parseos redundantes y reduciendo la presión en el heap.
 

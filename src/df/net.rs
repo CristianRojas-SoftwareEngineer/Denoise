@@ -55,8 +55,17 @@ pub struct DpdfNetSession {
 impl DpdfNetSession {
     /// Carga la sesión ONNX desde la ruta del modelo y lee su contrato de metadatos.
     pub fn load(models: &ModelPaths) -> Result<Self, E> {
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .min(8);
+
         let session = Session::builder()
             .map_err(|e| E::EModelMissing(format!("Error en SessionBuilder: {}", e)))?
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
+            .map_err(|e| E::EModelMissing(format!("Error configurando nivel de optimización: {}", e)))?
+            .with_intra_threads(threads)
+            .map_err(|e| E::EModelMissing(format!("Error configurando hilos intra-op: {}", e)))?
             .commit_from_file(&models.onnx)
             .map_err(|e| {
                 E::EModelMissing(format!("Error cargando {}: {}", models.onnx.display(), e))
