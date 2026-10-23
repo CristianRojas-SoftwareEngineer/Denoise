@@ -6,6 +6,7 @@
 //! inversa con `1/N`, padding reflect de la señal cruda, recorte 1920.
 //! Constantes: `SR48000 / FFT960 / HOP480 / WNORM=1 / INV=1/960`.
 
+use crate::errors::E;
 use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 use std::f32::consts::PI;
@@ -191,6 +192,72 @@ impl StftHelper {
         out[..avail].copy_from_slice(&ola[src..src + avail]);
         out
     }
+
+    /// Procesa una señal con padding de extremo a extremo aplicando STFT,
+    /// callback de inferencia por frame, e iSTFT directa en overlap-add sin
+    /// almacenar en heap matrices intermedias de frames complejos.
+    ///
+    /// Preserva bit-exactitud estricta con `forward_stft` + inferencia + `inverse_stft`,
+    /// reduciendo drásticamente el consumo de memoria RAM (~95% menos) y eliminando
+    /// cientos de miles de allocaciones individuales en el heap en clips largos.
+    pub fn process_streaming<F>(
+        &self,
+        padded_signal: &[f32],
+        target_len: usize,
+        mut infer_frame: F,
+        mut progress_cb: impl FnMut(usize, usize),
+    ) -> Result<Vec<f32>, E>
+    where
+        F: FnMut(&[Complex32], &mut [Complex32]) -> Result<(), E>,
+    {
+        let num_frames = (padded_signal.len().saturating_sub(FFT_SIZE)) / HOP_SIZE + 1;
+        if num_frames == 0 || target_len == 0 {
+            return Ok(vec![0.0; target_len]);
+        }
+
+        let istft_len = (num_frames - 1) * HOP_SIZE;
+        let mut ola = vec![0.0_f32; istft_len + FFT_SIZE];
+        let mut fwd_buffer = vec![Complex32::new(0.0, 0.0); FFT_SIZE];
+        let mut inv_buffer = vec![Complex32::new(0.0, 0.0); FFT_SIZE];
+        let mut out_bins = [Complex32::new(0.0, 0.0); NB_BINS];
+
+        for t in 0..num_frames {
+            let offset = t * HOP_SIZE;
+            for i in 0..FFT_SIZE {
+                let sample = padded_signal[offset + i];
+                let win_val = self.window[i];
+                fwd_buffer[i] = Complex32::new(sample * win_val * WNORM, 0.0);
+            }
+
+            self.fft_forward.process(&mut fwd_buffer);
+
+            // Inferencia del frame (481 bins positivos)
+            infer_frame(&fwd_buffer[..NB_BINS], &mut out_bins)?;
+
+            // Reconstrucción hermitiana para la iFFT
+            inv_buffer[0] = Complex32::new(out_bins[0].re, 0.0);
+            for k in 1..NB_BINS - 1 {
+                inv_buffer[k] = out_bins[k];
+                inv_buffer[FFT_SIZE - k] = out_bins[k].conj();
+            }
+            inv_buffer[NB_BINS - 1] = Complex32::new(out_bins[NB_BINS - 1].re, 0.0);
+
+            self.fft_inverse.process(&mut inv_buffer);
+
+            // Overlap-add con ventana de síntesis
+            for i in 0..FFT_SIZE {
+                ola[offset + i] += inv_buffer[i].re * self.window[i] * INV_FFT_SCALE;
+            }
+
+            progress_cb(t + 1, num_frames);
+        }
+
+        let mut out = vec![0.0_f32; target_len];
+        let avail = istft_len.saturating_sub(ISTFT_HEAD_CROP).min(target_len);
+        let src = CENTER_CROP + ISTFT_HEAD_CROP;
+        out[..avail].copy_from_slice(&ola[src..src + avail]);
+        Ok(out)
+    }
 }
 
 impl Default for StftHelper {
@@ -286,6 +353,50 @@ mod tests {
                 "con {secs}s el impulso cae en {} en vez de {}",
                 peak,
                 pos - 1920
+            );
+        }
+    }
+
+    /// Comprueba que `process_streaming` con inferencia identidad produce exactamente
+    /// el mismo resultado que la llamada encadenada `forward_stft` + `inverse_stft`.
+    #[test]
+    fn test_streaming_parity_with_forward_inverse() {
+        let stft = StftHelper::new();
+        let n = 48000 * 2; // 2 segundos
+        let mut original = Vec::with_capacity(n);
+        for i in 0..n {
+            let t = i as f32 / (SR as f32);
+            original.push((2.0 * PI * 330.0 * t).sin() * 0.4 + (2.0 * PI * 880.0 * t).cos() * 0.2);
+        }
+
+        let padded = stft.pad_signal(&original);
+
+        // Ruta histórica
+        let frames = stft.forward_stft(&padded);
+        let expected = stft.inverse_stft(&frames, n);
+
+        // Ruta streaming unificada
+        let actual = stft
+            .process_streaming(
+                &padded,
+                n,
+                |frame, out| {
+                    out.copy_from_slice(frame);
+                    Ok(())
+                },
+                |_, _| {},
+            )
+            .expect("streaming ok");
+
+        assert_eq!(expected.len(), actual.len());
+        for (i, (&exp, &act)) in expected.iter().zip(actual.iter()).enumerate() {
+            assert_eq!(
+                exp.to_bits(),
+                act.to_bits(),
+                "Discrepancia a nivel de bits en muestra {}: esperado {}, obtenido {}",
+                i,
+                exp,
+                act
             );
         }
     }

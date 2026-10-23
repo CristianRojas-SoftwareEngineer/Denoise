@@ -100,34 +100,37 @@ pub fn denoise_wav_with_params(
     }
     let session = cache_guard.as_mut().unwrap();
 
-    // 4. Recorrido secuencial: STFT -> inferencia encadenando estado -> iSTFT.
-    // El modelo es stateful, así que no se trocea ni se reinicia el estado.
+    // 4. Recorrido streaming: STFT -> inferencia encadenando estado -> iSTFT
+    // sin almacenar en heap la matriz espectral intermedia completa.
     let padded = stft_helper.pad_signal(&samples_f32);
-    let stft_frames = stft_helper.forward_stft(&padded);
+    let total_frames = (padded.len().saturating_sub(crate::df::stft::FFT_SIZE))
+        / crate::df::stft::HOP_SIZE
+        + 1;
 
-    if stft_frames.len() <= crate::df::stft::FFT_SIZE / crate::df::stft::HOP_SIZE {
+    if total_frames <= crate::df::stft::FFT_SIZE / crate::df::stft::HOP_SIZE {
         return Err(E::EInvalidInput(
             "Audio demasiado corto para el modelo".to_string(),
         ));
     }
 
-    // Inferencia frame a frame con DpdfStream (zero heap alloc en el bucle).
-    let total_frames = stft_frames.len();
     let step = (total_frames / 20).max(1);
     let mut stream = session.stream();
-    let mut enhanced_frames = Vec::with_capacity(total_frames);
 
-    for (i, frame) in stft_frames.iter().enumerate() {
-        let out_ref = stream.process_frame(frame)?;
-        enhanced_frames.push(out_ref.to_vec());
-        if (i + 1) % step == 0 || i + 1 == total_frames {
-            let done_secs = (i + 1) as f64 / total_frames as f64 * total_duration_secs;
-            progress_cb(done_secs, total_duration_secs);
-        }
-    }
-
-    // Síntesis iSTFT con el recorte exacto de la referencia (`apply_istft`).
-    let synthesized = stft_helper.inverse_stft(&enhanced_frames, total_samples);
+    let synthesized = stft_helper.process_streaming(
+        &padded,
+        total_samples,
+        |frame, out_dest| {
+            let out_ref = stream.process_frame(frame)?;
+            out_dest.copy_from_slice(out_ref);
+            Ok(())
+        },
+        |frames_done, total_f| {
+            if frames_done % step == 0 || frames_done == total_f {
+                let done_secs = frames_done as f64 / total_f as f64 * total_duration_secs;
+                progress_cb(done_secs, total_duration_secs);
+            }
+        },
+    )?;
 
     // 5. Post-filtrado pasa-altos opcional: eliminar rumble subgrave (<70 Hz)
     //    de la señal sintetizada. Solo se aplica cuando `--highpass` está activo.
