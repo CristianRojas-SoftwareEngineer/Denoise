@@ -15,20 +15,21 @@
 6. [Set ampliado a 8 clips (2026-10-03)](#6-set-ampliado-a-8-clips-2026-10-03)
 7. [Cómo iterar](#7-cómo-iterar)
 8. [Salida del par 65 s del set (2026-10-03)](#8-salida-del-par-65-s-del-set-2026-10-03)
+9. [Perfiles de calidad](#9-perfiles-de-calidad)
 
 ## 1. Método
 
 ```bash
-python tools/quality/benchmark.py run --set tests_data --work out/bench
+python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all
 ```
 
 El comando ejecuta el DSP de producción sobre cada clip (vía el harness
 `examples/process_wav.rs`, que invoca la misma ruta que `denoise` usa
 internamente) y puntúa la salida contra la voz limpia real. Las salidas
 generadas quedan en `out/bench/` (no se commitean; `out/` está en
-`.gitignore`). La línea base comprometida vive en
-`tools/quality/baseline.json` y el benchmark falla si alguna métrica cae
-respecto a ella.
+`.gitignore`). Las líneas base comprometidas viven en
+`tools/quality/baseline_{perfil}.json` (ej. `baseline_default.json`) y el benchmark falla si alguna métrica cae
+respecto a ellas.
 
 Comparar dos implementaciones es correr el mismo comando en cada build con
 distinto `--work` (y distinto `--model-dir` si usan modelos distintos) y
@@ -40,7 +41,7 @@ voz limpia real, no contra ningún oráculo.
 Motor: grafo único `dpdfnet8_48khz_hr.onnx` (Ceva-IP, Apache 2.0), pipeline
 stateful sin troceado ni normalización de salida. Estos números fueron la
 **primera** línea base, medida antes del gate de pausa; desde su
-ratificación del 2026-10-03 `tools/quality/baseline.json` contiene los valores
+ratificación del 2026-10-03 `tools/quality/baseline_default.json` contiene los valores
 **con** gate (§5) y ya no incluye el par 65 s (§8). Esta tabla queda como
 registro de aquella corrida.
 
@@ -88,8 +89,8 @@ duración queda como trabajo futuro.
 | 2026-10-03 | Línea base DPDFNet | +6,68 | 0,838 | 1,196 | +2,67 | Primera medición con las tres métricas |
 | 2026-10-03 | Batería ampliada (p5, LUFS, RTF, DNSMOS) | +6,68 | 0,838 | 1,196 | +2,67 | Mismo DSP; la puerta ahora cubre 9 métricas. Detalle abajo |
 | 2026-10-03 | Batería 7 clips (sale `voz_65s`) | = | = | = | — | Sin cambio DSP; ver §8 |
-| 2026-10-03 | Gate de pausa: −25 dB en pausas, voz ×1.0 | +6,68 | 0,838 | 1,196 | — | 7/7 verde en la puerta, `baseline.json` sin mover. Detalle abajo. `test_golden_65s` en rojo por referencia pre-gate (ver `docs/design.md` §6) |
-| 2026-10-03 | Ratificación de `baseline.json` + re-congelado de la dorada 65 s | = | = | = | — | `--update-baseline` tras verificar la mejora; `referencia65s_dpdfnet.wav` regenerada sobre `voz65s_noisy.wav` → `test_golden_65s` en verde con 100,00 dB (umbral sin relajar). Puerta en verde de nuevo en la corrida posterior |
+| 2026-10-03 | Gate de pausa: −25 dB en pausas, voz ×1.0 | +6,68 | 0,838 | 1,196 | — | 7/7 verde en la puerta, `baseline_default.json` sin mover. Detalle abajo. `test_golden_65s` en rojo por referencia pre-gate (ver `docs/design.md` §6) |
+| 2026-10-03 | Ratificación de `baseline_default.json` + re-congelado de la dorada 65 s | = | = | = | — | `--update-baseline` tras verificar la mejora; `referencia65s_dpdfnet.wav` regenerada sobre `voz65s_noisy.wav` → `test_golden_65s` en verde con 100,00 dB (umbral sin relajar). Puerta en verde de nuevo en la corrida posterior |
 
 Batería ampliada (mismo DSP, mismos clips):
 
@@ -129,7 +130,7 @@ queda como registro de este documento—):
 | train_snr5 | −0,4 dB | +1,4 | 0,88 | 48 % |
 | restaurant_snr0 | −1,1 dB | −2,0 | 0,73 | 47 % |
 
-Lectura: puerta en verde — "sin regresiones" respecto a `baseline.json`,
+Lectura: puerta en verde — "sin regresiones" respecto a `baseline_default.json`,
 que en esa corrida **no se movió** (se ratificó después, ver fila y decisión
 más abajo), y ninguna métrica de puerta empeora. Mejoras medidas
 frente a la línea base: `car_snr0` PESQ 2,472 → 2,588 (+0,116);
@@ -138,14 +139,14 @@ OVR 2,656 → 2,731; `train_snr5` BAK 4,113 → 4,159 y OVR 3,165 → 3,234;
 el resto queda dentro del ruido de medición. Nivel acotado (−0,4 a
 −2,2 dB), LUFS entre −4,2 y +1,5 y RTF de esa corrida 0,73–1,02 (métrica
 de tiempo, ±10 % entre corridas: la línea ratificada en
-`tools/quality/baseline.json` vale 0,69–1,14 con la carga del modelo en el
+`tools/quality/baseline_default.json` vale 0,69–1,14 con la carga del modelo en el
 primer clip, y las corridas posteriores 1,06–1,19): el gate solo atenúa
 pausas, la voz sale multiplicada por 1.0 y no hay ganancia, normalización
 ni limiter.
 
 Decisiones tomadas el 2026-10-03 tras aprobarlas: la mejora **se ratificó**
-en `tools/quality/baseline.json` con `run --set tests_data --work out/bench
---update-baseline` (el §7 exige aprobación para moverla; la puerta volvió a
+en `tools/quality/baseline_default.json` con `run --set tests_data --work out/bench
+--profile default --update-baseline` (el §7 exige aprobación para moverla; la puerta volvió a
 dar «sin regresiones» en la corrida posterior) y
 `tests/data/referencia65s_dpdfnet.wav` **se re-congeló** con el propio port
 sobre `voz65s_noisy.wav` sin relajar el umbral `>=60 dB`, de modo que
@@ -157,7 +158,7 @@ sobre `voz65s_noisy.wav` sin relajar el umbral `>=60 dB`, de modo que
 Seis pares nuevos de 15 s (pub/car/office/train/restaurant a SNR 0/5,
 >=40 % voz activa, mezclas nativas del EvalSet). Medición **pre-gate** del
 set de 8 clips (2026-10-03): con el gate activo los valores vigentes de
-estos seis clips están en §5 y en `tools/quality/baseline.json`. Ganancias
+estos seis clips están en §5 y en `tools/quality/baseline_default.json`. Ganancias
 SI-SDR de +8,9 a +13,6 dB con STOI acompañando (0,82–0,98) y DNSMOS BAK ~4:
 
 | Clip | SI-SDR | p5 | STOI | PESQ | SIG/BAK/OVR |
@@ -178,7 +179,7 @@ exactamente la clase de defecto que la media escondía. La puerta (tolerancia
 
 Añadir una fila por cada cambio que toque el DSP, con el comando del §1
 re-ejecutado. Si la fila nueva empeora alguna métrica respecto a
-`baseline.json`, el propio benchmark lo marca antes de commitear.
+`baseline_{perfil}.json`, el propio benchmark lo marca antes de commitear.
 
 ## 7. Cómo iterar
 
@@ -201,7 +202,7 @@ atribuir el resultado; con uno, el veredicto es inequívoco.
 iteración no está evaluada hasta que pasan ambas:
 
 ```bash
-python tools/quality/benchmark.py run --set tests_data --work out/bench
+python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all
 cargo test --release
 ```
 
@@ -211,7 +212,7 @@ diagnostica con la métrica y el clip que el reporte indica (el p5 dice en qué
 segundo mirar; ante la duda manda el oído). Todo igual = hipótesis falsa,
 se revierte sin costo.
 
-**5. Registrar.** Cada cambio deja tres rastros: `baseline.json` actualizada
+**5. Registrar.** Cada cambio deja tres rastros: `baseline_{perfil}.json` actualizada
 (solo si la mejora fue deliberada y verificada), fila en §5/§6 y commit.
 
 **Regla de oro.** La baseline nunca se mueve para que un resultado pase;
@@ -229,7 +230,22 @@ mezcla se midieron con 8 clips y los del gate y de las pausas con 7 (tras la
 salida de `voz_65s`); ambos se mantienen en el historial tal cual se
 midieron; no se reescriben.
 
-Cambios: `tools/quality/clips.json` (7 clips), `tools/quality/baseline.json`
+Cambios: `tools/quality/clips.json` (7 clips), `tools/quality/baseline_default.json`
 (sin la clave `voz_65s`, resto intacto). Sus WAV quedan en `tests/data/`
 para `test_golden_65s` (estabilidad en archivos largos). Interino hasta
 reemplazarlo por un clip largo representativo (ver §4).
+
+## 9. Perfiles de calidad
+
+El benchmark permite evaluar combinaciones de flags DSP declaradas en
+`tools/quality/clips.json["profiles"]` para medir no solo la configuración
+por defecto, sino también configuraciones especializadas:
+
+- `default`: DSP canónico sin flags adicionales (`baseline_default.json`).
+- `hq_speech`: `--highpass --dry-blend 0.03 --pause-gate-db -30` (`baseline_hq_speech.json`).
+- `aggressive`: `--highpass --dry-blend 0.0 --pause-gate-db -40` (`baseline_aggressive.json`).
+
+Cada perfil posee su propia línea base independiente y canónica
+`tools/quality/baseline_{perfil}.json`. La puerta de regresión evalúa
+cada perfil contra su respectivo archivo cuando se ejecuta `--profile all`
+o un perfil individual.

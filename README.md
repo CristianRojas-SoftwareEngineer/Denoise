@@ -341,10 +341,10 @@ Los tests verifican que nada se rompa; el benchmark mide *cuánto* limpia el DSP
 
 ```bash
 pip install -r tools/quality/requirements.txt
-python tools/quality/benchmark.py run --set tests_data --work out/bench
+python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all
 ```
 
-El comando ejecuta el DSP sobre el set de clips y compara contra la línea base comprometida (`tools/quality/baseline.json`), fallando si alguna métrica cae. El historial de resultados vive en [docs/benchmark.md](docs/benchmark.md); el uso detallado de la herramienta, en [tools/quality/README.md](tools/quality/README.md).
+El comando ejecuta el DSP sobre el set de clips y compara contra las líneas base comprometidas (`tools/quality/baseline_{perfil}.json`), fallando si alguna métrica cae. El historial de resultados vive en [docs/benchmark.md](docs/benchmark.md); el uso detallado de la herramienta, en [tools/quality/README.md](tools/quality/README.md).
 
 ---
 
@@ -372,8 +372,8 @@ El comando ejecuta el DSP sobre el set de clips y compara contra la línea base 
 ├── tools/quality/ # Benchmark periódico de calidad (SI-SDR, STOI, PESQ, DNSMOS, p5, LUFS, RTF)
 │ ├── metrics.py # Implementación de las métricas
 │ ├── benchmark.py # CLI run/score + puerta de regresión
-│ ├── clips.json # Manifiesto de sets de clips
-│ ├── baseline.json # Línea base comprometida
+│ ├── clips.json # Manifiesto de sets de clips y perfiles de calidad
+│ ├── baseline_*.json # Líneas base comprometidas por perfil (ej. baseline_default.json)
 │ └── README.md # Uso de la herramienta
 ├── assets/ # Fixture manual E2E (`e2e_vertical_1080x1920_16s.mp4`)
 ├── examples/ # Harnesses y generadores (no se distribuyen en el binario)

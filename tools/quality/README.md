@@ -32,29 +32,37 @@ pip install -r tools/quality/requirements.txt
 ## Uso
 
 ```bash
-# 1. Ejecutar el DSP sobre el set y puntuar (usa el harness de Rust,
-#    que invoca la misma ruta que `denoise` internamente):
-python tools/quality/benchmark.py run --set tests_data --work out/bench
+# 1. Ejecutar el DSP sobre el set y puntuar para todos los perfiles:
+python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all
 
-# 2. Puntuar salidas ya generadas (p. ej. para comparar dos builds):
-python tools/quality/benchmark.py score --outputs out/bench
+# 2. Ejecutar un solo perfil (default, hq_speech, aggressive, etc.):
+python tools/quality/benchmark.py run --set tests_data --work out/bench --profile hq_speech
 
-# 3. Actualizar la línea base tras un cambio intencionado:
-python tools/quality/benchmark.py run --set tests_data --work out/bench --update-baseline
+# 3. Puntuar salidas ya generadas:
+python tools/quality/benchmark.py score --outputs out/bench --profile all
+
+# 4. Actualizar la línea base de un perfil tras un cambio intencionado:
+python tools/quality/benchmark.py run --set tests_data --work out/bench --profile hq_speech --update-baseline
 ```
 (usar `run`: `score` no mide RTF y dejaría `rtf: null` en la baseline)
 
 `--work` y `--outputs` pueden ser el mismo directorio. `out/` está en
-`.gitignore`: los artefactos no se commitean, solo `baseline.json`.
+`.gitignore`: los artefactos no se commitean, solo `baseline_{perfil}.json` (ej. `baseline_default.json`).
+
+## Perfiles de calidad
+
+Declarados en `clips.json["profiles"]`, permiten evaluar combinaciones de flags DSP
+(pasa-altos, dry blend, nivel de gate de pausas). Cada perfil cuenta con su propia línea
+base independiente y canónica: `baseline_{perfil}.json`.
 
 ## Comparar dos builds (p. ej. este DPDFNet vs otra versión del modelo)
 
 ```bash
 # build A en su worktree, con su propio model-dir:
 python tools/quality/benchmark.py run --root ../denoise-otro \
-    --set tests_data --work out/bench-otro --model-dir C:/temp/models-otro
+    --set tests_data --work out/bench-otro --model-dir C:/temp/models-otro --profile all
 # comparar:
-python tools/quality/benchmark.py score --outputs out/bench-otro
+python tools/quality/benchmark.py score --outputs out/bench-otro --profile all
 ```
 
 El `run` de cada build genera su propio reporte; la comparación es manual
@@ -63,7 +71,8 @@ voz limpia real, no contra ningún oráculo.
 
 ## Puerta de regresión
 
-`baseline.json` es la línea base comprometida. `score` falla (exit 1) si:
+Cada `baseline_{perfil}.json` (ej: `baseline_default.json`) es la línea base comprometida
+del perfil. `score` o `run` falla (exit 1) si:
 
 - ganancia SI-SDR cae más de 0.5 dB,
 - p5 cae más de 1.0 dB,

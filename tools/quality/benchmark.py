@@ -9,10 +9,16 @@ Dos modos:
    dos builds entre si (p. ej. dos worktrees) sin re-ejecutar.
 
 Las metricas viven en `metrics.py`. Aqui solo hay orquestacion, manifesto de
-clips y puerta de regresion contra `baseline.json`.
+clips y puerta de regresion contra `baseline_{perfil}.json`.
+
+Perfiles: cada perfil define un conjunto de flags DSP (highpass, dry_blend,
+pause_gate_db) declarados en `clips.json["profiles"]`. Su linea base vive en
+`baseline_{nombre}.json`.
 
 Uso:
     python tools/quality/benchmark.py run --set tests_data --work out/bench
+    python tools/quality/benchmark.py run --set tests_data --work out/bench --profile hq_speech
+    python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all
     python tools/quality/benchmark.py score --outputs out/bench --set tests_data
     python tools/quality/benchmark.py run --set tests_data --work out/bench --update-baseline
 Nota: ratificar siempre con `run` (`score` no mide RTF y dejaria `rtf: null`
@@ -62,6 +68,38 @@ GATED_LOWER = (
 
 # Métricas que se reportan pero no fallan (reservado para futuras candidatas).
 INFORMATIVAS: tuple = ()
+
+
+# ------------------------------------------------------------------- perfiles
+
+
+def read_profiles(manifest: dict) -> dict:
+    """Carga los perfiles de flags DSP del manifiesto."""
+    return manifest["profiles"]
+
+
+def baseline_path_for(profile_name: str) -> Path:
+    """Ruta canónica de la línea base de un perfil: baseline_{nombre}.json."""
+    return HERE / f"baseline_{profile_name}.json"
+
+
+def build_harness_cmd(
+    pairs: Path, model_dir: Path | None, profile_flags: dict
+) -> list[str]:
+    """Construye el comando del harness Rust inyectando las flags del perfil."""
+    cmd = [
+        "cargo", "run", "--release", "--example", "process_wav", "--",
+        str(pairs),
+    ]
+    if model_dir:
+        cmd.append(str(model_dir))
+    if profile_flags.get("highpass", False):
+        cmd.append("--highpass")
+    if "dry_blend" in profile_flags:
+        cmd.extend(["--dry-blend", str(profile_flags["dry_blend"])])
+    if "pause_gate_db" in profile_flags:
+        cmd.extend(["--pause-gate-db", str(profile_flags["pause_gate_db"])])
+    return cmd
 
 
 # ------------------------------------------------------------------- entradas
@@ -155,7 +193,8 @@ def parse_rtf(stdout: str) -> dict:
     return out
 
 
-def print_table(scores: list[metrics.ClipScore]) -> None:
+def print_table(scores: list[metrics.ClipScore], profile_name: str) -> None:
+    print(f"\n{'=' * 20} perfil: {profile_name} {'=' * 20}")
     head = (
         f"{'clip':<12} {'in->out SI-SDR':>17} {'ganancia':>9} {'p5':>7} "
         f"{'STOI':>13} {'PESQ':>13} {'SIG/BAK/OVR':>17} "
@@ -257,57 +296,135 @@ def write_baseline(scores: list[metrics.ClipScore], path: Path) -> None:
     print(f"linea base escrita en {path}")
 
 
+# -------------------------------------------------------- resolución perfiles
+
+
+def resolve_profiles(profile_arg: str, manifest: dict) -> list[str]:
+    """Resuelve --profile a la lista de nombres de perfiles a ejecutar."""
+    all_profiles = read_profiles(manifest)
+    if profile_arg == "all":
+        return list(all_profiles.keys())
+    if profile_arg not in all_profiles:
+        raise SystemExit(
+            f"perfil '{profile_arg}' no existe en clips.json; "
+            f"disponibles: {', '.join(all_profiles.keys())}"
+        )
+    return [profile_arg]
+
+
+def work_dir_for(base_work: Path, profile_name: str, multi: bool) -> Path:
+    """Directorio de trabajo: subdirectorio por perfil si hay varios."""
+    if multi:
+        return base_work / profile_name
+    return base_work
+
+
 # --------------------------------------------------------------------- modos
 
 
-def cmd_run(args) -> int:
-    clips = clips_of(read_manifest(), args.set, args.root)
-    args.work.mkdir(parents=True, exist_ok=True)
+def run_single_profile(
+    profile_name: str,
+    profile_flags: dict,
+    clips: list[dict],
+    work: Path,
+    root: Path,
+    model_dir: Path | None,
+    update_baseline: bool,
+    no_check: bool,
+) -> int:
+    """Ejecuta un perfil: harness → puntuar → puerta de regresión."""
+    work.mkdir(parents=True, exist_ok=True)
 
-    pairs = args.work / "pairs.txt"
+    pairs = work / "pairs.txt"
     with open(pairs, "w", encoding="utf-8") as f:
         for c in clips:
-            f.write(f"{c['noisy']}\t{args.work / c['output_name']}\n")
+            f.write(f"{c['noisy']}\t{work / c['output_name']}\n")
 
-    cmd = [
-        "cargo", "run", "--release", "--example", "process_wav", "--",
-        str(pairs),
-    ]
-    if args.model_dir:
-        cmd.append(str(args.model_dir))
-    r = subprocess.run(cmd, cwd=str(args.root), stdout=subprocess.PIPE, text=True)
+    cmd = build_harness_cmd(pairs, model_dir, profile_flags)
+    r = subprocess.run(cmd, cwd=str(root), stdout=subprocess.PIPE, text=True)
     if r.returncode != 0:
         return r.returncode
 
-    return cmd_score(args, rtf_by_name=parse_rtf(r.stdout))
+    return score_single_profile(
+        profile_name, clips, work, parse_rtf(r.stdout),
+        update_baseline, no_check,
+    )
 
 
-def cmd_score(args, rtf_by_name: dict | None = None) -> int:
-    clips = clips_of(read_manifest(), args.set, args.root)
-    scores = score_all(clips, Path(args.outputs), rtf_by_name)
+def score_single_profile(
+    profile_name: str,
+    clips: list[dict],
+    outputs: Path,
+    rtf_by_name: dict | None,
+    update_baseline: bool,
+    no_check: bool,
+) -> int:
+    """Puntúa y evalúa un perfil contra su baseline."""
+    scores = score_all(clips, outputs, rtf_by_name)
 
-    print_table(scores)
+    print_table(scores, profile_name)
 
     report = {"clips": {s.name: s.as_dict() for s in scores}}
-    report_path = Path(args.outputs) / "report.json"
+    report_path = outputs / "report.json"
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
     print(f"reporte en {report_path}")
 
-    if args.update_baseline:
-        write_baseline(scores, HERE / "baseline.json")
+    bl = baseline_path_for(profile_name)
+
+    if update_baseline:
+        write_baseline(scores, bl)
         return 0
 
-    baseline = HERE / "baseline.json"
-    if baseline.exists() and not args.no_check:
-        failures = check_baseline(scores, baseline)
+    if bl.exists() and not no_check:
+        failures = check_baseline(scores, bl)
         if failures:
-            print("REGRESIONES:")
+            print(f"REGRESIONES (perfil {profile_name}):")
             for f in failures:
                 print(f"  - {f}")
             return 1
-        print("sin regresiones respecto a la linea base")
+        print(f"sin regresiones respecto a baseline_{profile_name}.json")
+    elif not bl.exists() and not no_check:
+        print(f"WARN: no existe {bl.name}; ejecutar con --update-baseline para crearla")
     return 0
+
+
+def cmd_run(args) -> int:
+    manifest = read_manifest()
+    clips = clips_of(manifest, args.set, args.root)
+    all_profiles = read_profiles(manifest)
+    profile_names = resolve_profiles(args.profile, manifest)
+    multi = len(profile_names) > 1
+
+    exit_code = 0
+    for pname in profile_names:
+        pflags = all_profiles[pname].get("flags", {})
+        work = work_dir_for(args.work, pname, multi)
+        rc = run_single_profile(
+            pname, pflags, clips, work, args.root,
+            args.model_dir, args.update_baseline, args.no_check,
+        )
+        if rc != 0:
+            exit_code = rc
+    return exit_code
+
+
+def cmd_score(args) -> int:
+    manifest = read_manifest()
+    clips = clips_of(manifest, args.set, args.root)
+    profile_names = resolve_profiles(args.profile, manifest)
+    multi = len(profile_names) > 1
+
+    exit_code = 0
+    for pname in profile_names:
+        outputs = work_dir_for(Path(args.outputs), pname, multi) if multi else Path(args.outputs)
+        rc = score_single_profile(
+            pname, clips, outputs, None,
+            args.update_baseline, args.no_check,
+        )
+        if rc != 0:
+            exit_code = rc
+    return exit_code
 
 
 def main() -> int:
@@ -317,11 +434,12 @@ def main() -> int:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--set", default="tests_data")
     common.add_argument("--root", type=Path, default=REPO)
+    common.add_argument("--profile", default="default",
+                        help="perfil de flags DSP (nombre o 'all')")
 
     r = sub.add_parser("run", parents=[common], help="ejecutar el DSP y puntuar")
     r.add_argument("--work", type=Path, required=True)
     r.add_argument("--model-dir", type=Path, default=None)
-    r.add_argument("--outputs", type=Path, default=None)
     r.add_argument("--update-baseline", action="store_true")
     r.add_argument("--no-check", action="store_true")
 
@@ -332,8 +450,6 @@ def main() -> int:
 
     args = ap.parse_args()
     if args.mode == "run":
-        if args.outputs is None:
-            args.outputs = Path(args.work)
         return cmd_run(args)
     return cmd_score(args)
 

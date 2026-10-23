@@ -133,8 +133,8 @@ el oído, manda el oído.
 - `tools/quality/metrics.py`: implementación de todas las métricas.
 - `tools/quality/benchmark.py`: ejecuta el DSP sobre un set de clips y genera
   el reporte con la tabla.
-- `tools/quality/baseline.json`: línea base comprometida; el benchmark falla
-  si alguna métrica cae respecto a ella.
+- `tools/quality/baseline_{perfil}.json`: líneas base comprometidas por perfil
+  (ej. `baseline_default.json`); el benchmark falla si alguna métrica cae respecto a ella.
 - `tests/common/si_sdr.rs`: SI-SDR en Rust para `test_golden`. Usa la misma
   convención que `metrics.py`, así ambos números son comparables.
 - `docs/benchmark.md`: registro histórico de resultados a medida que se

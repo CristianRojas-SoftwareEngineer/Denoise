@@ -6,7 +6,7 @@
 cargo build --release
 cargo clippy --all-targets -- -D warnings   # 0 warnings
 cargo test --release                          # verde canónico: 33 passed / 5 ignored
-python tools/quality/benchmark.py run --set tests_data --work out/bench
+python tools/quality/benchmark.py run --set tests_data --work out/bench --profile all
 ```
 
 Ningún cambio se considera terminado sin estos cuatro en verde.
@@ -24,9 +24,9 @@ Ningún cambio se considera terminado sin estos cuatro en verde.
 
 - El proceso iterativo completo vive en `docs/benchmark.md` §7: leerlo antes
   de tocar `src/df/`. Significado de métricas en `docs/metrics.md`.
-- **Regla de oro**: `tools/quality/baseline.json` nunca se mueve para que un
-  resultado pase; solo con `--update-baseline` para ratificar una mejora
-  deliberada y verificada.
+- **Regla de oro**: las líneas base `tools/quality/baseline_{perfil}.json` (ej: `baseline_default.json`)
+  nunca se mueven para que un resultado pase; solo con `--update-baseline` para
+  ratificar una mejora deliberada y verificada.
 - Un cambio en el DSP por iteración; si la puerta falla, diagnosticar con la
   métrica y el clip que indica el reporte antes de reintentar.
 

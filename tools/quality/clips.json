@@ -1,4 +1,26 @@
 {
+  "profiles": {
+    "default": {
+      "description": "Sin flags adicionales (comportamiento canónico)",
+      "flags": {}
+    },
+    "hq_speech": {
+      "description": "Optimizado para habla: highpass + blend conservador + gate suave",
+      "flags": {
+        "highpass": true,
+        "dry_blend": 0.03,
+        "pause_gate_db": -30
+      }
+    },
+    "aggressive": {
+      "description": "Supresión máxima: highpass, sin blend, gate fuerte",
+      "flags": {
+        "highpass": true,
+        "dry_blend": 0.0,
+        "pause_gate_db": -40
+      }
+    }
+  },
   "sets": {
     "tests_data": {
       "description": "Pares congelados en tests/data: voz real espanola del EvalSet DPDFNet (Ceva-IP, Apache 2.0). Ventanas de maxima actividad (>=40% voz) cortadas de clips largos y remuestreadas a 48kHz.",
