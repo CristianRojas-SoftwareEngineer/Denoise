@@ -65,6 +65,14 @@ pub struct Cli {
     #[arg(long = "dry-blend", default_value = "0.0")]
     pub dry_blend: f32,
 
+    /// Nivel de atenuación en pausas sin voz en dB (-40 a 0, defecto: -25; 0 desactiva el gate)
+    #[arg(long = "pause-gate-db", default_value = "-25")]
+    pub pause_gate_db: f64,
+
+    /// Activar filtro pasa-altos a 70 Hz para suprimir rumble subgrave
+    #[arg(long = "highpass")]
+    pub highpass: bool,
+
     /// Directorio para almacenar/buscar modelos ONNX (defecto: ~/.cache/denoise/models)
     #[arg(long = "model-dir")]
     pub model_dir: Option<PathBuf>,
@@ -567,6 +575,16 @@ pub fn run() -> anyhow::Result<()> {
         std::process::exit(err.exit_code());
     }
 
+    // Validar pause-gate-db (-40.0 a 0.0)
+    if !(-40.0..=0.0).contains(&cli.pause_gate_db) {
+        let err = E::EInvalidInput(format!(
+            "El valor de pause-gate-db {} dB está fuera del rango permitido (-40 a 0)",
+            cli.pause_gate_db
+        ));
+        eprintln!("Error: {}", err);
+        std::process::exit(err.exit_code());
+    }
+
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
     // Expansión
@@ -649,6 +667,8 @@ pub fn run() -> anyhow::Result<()> {
         models_provider: &models_provider,
         audio_bitrate: cli.audio_bitrate,
         dry_blend: cli.dry_blend,
+        pause_gate_db: cli.pause_gate_db,
+        highpass: cli.highpass,
         overwrite: cli.overwrite,
         skip_existing: cli.skip_existing,
         json_mode: cli.json,
@@ -667,6 +687,8 @@ pub struct BatchParams<'a> {
     pub models_provider: &'a dyn crate::models::ModelsProvider,
     pub audio_bitrate: u32,
     pub dry_blend: f32,
+    pub pause_gate_db: f64,
+    pub highpass: bool,
     pub overwrite: bool,
     pub skip_existing: bool,
     pub json_mode: bool,
@@ -714,6 +736,8 @@ pub fn process_batch(items: &[ResolvedItem], params: &BatchParams) -> i32 {
             output: &item.output,
             audio_bitrate: params.audio_bitrate,
             dry_blend: params.dry_blend,
+            pause_gate_db: params.pause_gate_db,
+            highpass: params.highpass,
             model_dir: params.model_dir,
             models_provider: params.models_provider,
             overwrite: params.overwrite,

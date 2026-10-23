@@ -216,6 +216,20 @@ fn test_dry_blend_range() {
 }
 
 #[test]
+fn test_pause_gate_db_range() {
+    let bad_dbs = [-100.0_f64, -40.1, 0.1, 5.0, 25.0];
+    for &db in &bad_dbs {
+        let is_valid = (-40.0..=0.0).contains(&db);
+        assert!(!is_valid, "pause-gate-db {} debería ser inválido", db);
+    }
+    let good_dbs = [-40.0_f64, -30.0, -25.0, -20.0, -10.0, 0.0];
+    for &db in &good_dbs {
+        let is_valid = (-40.0..=0.0).contains(&db);
+        assert!(is_valid, "pause-gate-db {} debería ser válido", db);
+    }
+}
+
+#[test]
 fn test_output_name_lot_multi_error() {
     let cwd = Path::new("/workspace");
     let inputs = vec![

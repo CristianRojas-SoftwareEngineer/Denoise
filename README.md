@@ -208,6 +208,9 @@ Uso: denoise [OPCIONES] <INPUT>...
 | `--prefix <TEXT>` | Opción | `""` | Prefijo del archivo generado. Solo `[A-Za-z0-9._-]`, no `.`/`..`. |
 | `--suffix <TEXT>` | Opción | `"_denoised"` | Sufijo antes de la extensión. Mismas reglas que `--prefix`. |
 | `--audio-bitrate <KBPS>` | Opción | `192` | Bitrate del audio AAC de salida en kbps (rango 64-320) (ej: 128, 192, 256). |
+| `--dry-blend <FACTOR>` | Opción | `0.0` | Mezcla opcional de señal original con la procesada (rango 0.0 a 1.0; 0.0 = salida 100% denoised). |
+| `--pause-gate-db <DB>` | Opción | `-25` | Nivel de atenuación en pausas sin voz en dB (rango -40 a 0; 0 desactiva el gate). |
+| `--highpass` | Flag | `false` | Activa filtro pasa-altos IIR a 70 Hz para eliminar rumble subgrave post-inferencia. |
 | `--recursive` | Flag | `false` | Búsqueda recursiva de videos al especificar directorios. |
 | `--overwrite` | Flag | `false` | Sobrescribe el destino si ya existe (excluyente con `--skip-existing`). Sin flags + destino existe → error `E_OUTPUT_EXISTS` (exit `2`). |
 | `--skip-existing` | Flag | `false` | Omite el procesamiento si el archivo destino ya existe. |

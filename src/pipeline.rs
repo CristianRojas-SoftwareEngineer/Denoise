@@ -3,7 +3,7 @@
 //! Contrato: `docs/design.md §5, §8`.
 //! Especificaciones: `docs/specifications.md §2 RF-05, RF-08, RF-09 y §3 RNF-03, RNF-06`.
 
-use crate::df::denoise_wav_with_provider_and_blend;
+use crate::df::denoise_wav_with_params;
 use crate::errors::E;
 use crate::ffmpeg_io::{extract_mono48k, probe, remux_copy, verify_output_lightweight};
 use crate::models::ModelsProvider;
@@ -26,6 +26,8 @@ pub struct PipelineParams<'a> {
     pub output: &'a Path,
     pub audio_bitrate: u32,
     pub dry_blend: f32,
+    pub pause_gate_db: f64,
+    pub highpass: bool,
     pub model_dir: &'a Path,
     pub models_provider: &'a dyn ModelsProvider,
     pub overwrite: bool,
@@ -160,12 +162,14 @@ where
 
     // 6-80%: Denoise DPDFNet DSP
     progress_cb(6, "eliminando ruido");
-    denoise_wav_with_provider_and_blend(
+    denoise_wav_with_params(
         &tmp_in_wav,
         &tmp_out_wav,
         params.model_dir,
         params.models_provider,
         params.dry_blend,
+        params.pause_gate_db,
+        params.highpass,
         &|cur_secs, total_secs| {
             if total_secs > 0.0 {
                 let ratio = (cur_secs / total_secs).clamp(0.0, 1.0);

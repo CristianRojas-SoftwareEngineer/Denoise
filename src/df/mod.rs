@@ -9,9 +9,11 @@
 //! -> gate de pausa (`apply_pause_gate`: −25 dB en no-voz, voz ×1.0) antes de
 //! cuantizar a PCM16.
 
+pub mod filter;
 pub mod net;
 pub mod stft;
 
+use crate::df::filter::{apply_highpass, HIGHPASS_CUTOFF_HZ};
 use crate::df::net::{DpdfNetSession, ORT_CACHE};
 use crate::df::stft::{StftHelper, SR};
 use crate::errors::E;
@@ -27,6 +29,9 @@ pub fn denoise_wav(in_wav: &Path, out_wav: &Path, progress_cb: impl Fn(f64, f64)
     denoise_wav_with_provider(in_wav, out_wav, &model_dir, &provider, &progress_cb)
 }
 
+/// Constante canónica de atenuación de pausas en dB (-25 dB).
+pub const GATE_CRUSH_DB: f64 = -25.0;
+
 /// Procesa un archivo WAV con un proveedor de modelos específico (permite tests/custom model-dir).
 pub fn denoise_wav_with_provider(
     in_wav: &Path,
@@ -35,7 +40,7 @@ pub fn denoise_wav_with_provider(
     provider: &dyn ModelsProvider,
     progress_cb: &dyn Fn(f64, f64),
 ) -> Result<(), E> {
-    denoise_wav_with_provider_and_blend(in_wav, out_wav, model_dir, provider, 0.0, progress_cb)
+    denoise_wav_with_params(in_wav, out_wav, model_dir, provider, 0.0, GATE_CRUSH_DB, false, progress_cb)
 }
 
 /// Procesa un archivo WAV con un proveedor de modelos específico y mezcla opcional dry-blend.
@@ -45,6 +50,22 @@ pub fn denoise_wav_with_provider_and_blend(
     model_dir: &Path,
     provider: &dyn ModelsProvider,
     dry_blend: f32,
+    progress_cb: &dyn Fn(f64, f64),
+) -> Result<(), E> {
+    denoise_wav_with_params(in_wav, out_wav, model_dir, provider, dry_blend, GATE_CRUSH_DB, false, progress_cb)
+}
+
+/// Procesa un archivo WAV con proveedor, dry-blend, atenuación de pause gate
+/// y filtro pasa-altos opcional configurables.
+#[allow(clippy::too_many_arguments)]
+pub fn denoise_wav_with_params(
+    in_wav: &Path,
+    out_wav: &Path,
+    model_dir: &Path,
+    provider: &dyn ModelsProvider,
+    dry_blend: f32,
+    pause_gate_db: f64,
+    highpass: bool,
     progress_cb: &dyn Fn(f64, f64),
 ) -> Result<(), E> {
     // 1. Cargar y verificar modelos
@@ -108,13 +129,21 @@ pub fn denoise_wav_with_provider_and_blend(
     // Síntesis iSTFT con el recorte exacto de la referencia (`apply_istft`).
     let synthesized = stft_helper.inverse_stft(&enhanced_frames, total_samples);
 
-    // 5. Sin normalización ni limiter: sherpa-onnx tampoco normaliza (con
+    // 5. Post-filtrado pasa-altos opcional: eliminar rumble subgrave (<70 Hz)
+    //    de la señal sintetizada. Solo se aplica cuando `--highpass` está activo.
+    //    Se ubica DESPUÉS de la inferencia y ANTES del pause gate para que el
+    //    VAD no se sesgue por energía subsónica inaudible.
+    let mut merged_samples: Vec<f32> = synthesized;
+    if highpass {
+        apply_highpass(&mut merged_samples, SR, HIGHPASS_CUTOFF_HZ);
+    }
+
+    // 6. Sin normalización ni limiter: sherpa-onnx tampoco normaliza (con
     // `attenuation_limit_db = 0`); solo recorta a [-1, 1] al cuantizar.
     // Cualquier ganancia global o soft-clip altera la escala que el modelo
     // produce y rompe la paridad con la referencia. El gate de pausa no
     // reescala: solo atenúa donde no hay voz y deja la voz por 1.0.
-    let mut merged_samples: Vec<f32> = synthesized;
-    apply_pause_gate(&mut merged_samples);
+    apply_pause_gate(&mut merged_samples, pause_gate_db);
 
     // Si dry_blend > 0.0, mezclar la señal procesada con la original para recuperar armónicos
     if dry_blend > 0.0 {
@@ -168,9 +197,6 @@ const GATE_EXIT_FRAMES: usize = 3;
 /// Marcos que la voz sigue a ganancia 1.0 tras dejar de detectarse (150 ms).
 const GATE_HANGOVER: usize = 5;
 
-/// Atenuación de las pausas en dB; la ganancia lineal vale `10^(dB / 20)`.
-const GATE_CRUSH_DB: f64 = -25.0;
-
 /// Tasa de cruce por cero mínima para clasificar marcos de energía intermedia
 /// (`db >= peak - GATE_LO_DB`) como fonemas sordos/fricativos y evitar cortes de voz.
 const GATE_ZCR_FRICATIVE_THRESHOLD: f64 = 0.22;
@@ -179,27 +205,10 @@ const GATE_ZCR_FRICATIVE_THRESHOLD: f64 = 0.22;
 const GATE_FADE: usize = GATE_FRAME;
 
 /// Aplica el gate de pausa validado (R3c) a la señal ya sintetizada, justo
-/// antes de cuantizar a PCM16: atenúa `GATE_CRUSH_DB` donde no hay voz y deja
-/// el resto intacto. No normaliza ni reescala la señal: la voz queda
-/// multiplicada por 1.0 y, por tanto, bit-idéntica a la síntesis.
-///
-/// Por qué: el residuo que el modelo deja en las pausas está muy por encima de
-/// la señal limpia — medido sobre la salida, oficina queda +27 dB sobre el pico
-/// de la limpia, restaurante +6 dB y tren +4 dB, mientras que en las zonas de
-/// voz el nivel ya está a pico. Ese residuo hunde SI-SDR, p5, STOI y PESQ sin
-/// que la voz pueda compensarlo, así que el gate es la única palanca que sube
-/// las métricas sin canjear calidad de voz. Algoritmo R3c validado en la
-/// batería (7/7 verde); ver `docs/benchmark.md`.
-///
-/// Cómo: VAD solo sobre la salida — RMS de `GATE_FRAME` muestras en dB contra el
-/// pico del clip, voz a `GATE_HI_DB` o por ZCR fricativo condicionado, salida con histéresis a `GATE_LO_DB` tras
-/// `GATE_EXIT_FRAMES` marcos y colchón de `GATE_HANGOVER` marcos tras la voz —
-/// y después ganancia por marco con fundido raised-cosine de `GATE_FADE`
-/// muestras en cada transición. Solo se analiza la parte múltiple de
-/// `GATE_FRAME`: la cola final conserva la ganancia del último marco y una
-/// señal más corta que un marco se devuelve intacta.
-fn apply_pause_gate(samples: &mut [f32]) {
-    if samples.len() < GATE_FRAME {
+/// antes de cuantizar a PCM16: atenúa `crush_db` donde no hay voz y deja
+/// el resto intacto. Si `crush_db >= 0.0`, el gate se desactiva por completo.
+fn apply_pause_gate(samples: &mut [f32], crush_db: f64) {
+    if samples.len() < GATE_FRAME || crush_db >= 0.0 {
         return;
     }
     let n_frames = samples.len() / GATE_FRAME;
@@ -249,7 +258,7 @@ fn apply_pause_gate(samples: &mut [f32]) {
         keep.push(is_voice || hang > 0);
     }
 
-    let crush = 10f64.powf(GATE_CRUSH_DB / 20.0) as f32;
+    let crush = 10f64.powf(crush_db / 20.0) as f32;
     let mut gain = Vec::with_capacity(n_frames * GATE_FRAME);
     for &is_voice in &keep {
         gain.extend(std::iter::repeat_n(
