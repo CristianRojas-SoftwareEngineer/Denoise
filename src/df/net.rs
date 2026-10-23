@@ -15,20 +15,40 @@
 //! estado inicial se construye a partir de los metadatos `erb_norm_init` y
 //! `spec_norm_init` embebidos en el propio ONNX, por lo que no hay constantes
 //! flotantes hardcodeadas aquí.
+//!
+//! ## Arquitectura: `DpdfNetSession` + `DpdfStream`
+//!
+//! - **`DpdfNetSession`** (lógicamente inmutable tras `load()`): sesión ONNX,
+//!   tamaño del estado y vector inicial cacheado. Se cachea globalmente en
+//!   `ORT_CACHE`. La referencia `&mut` que toma `DpdfStream` es requisito de
+//!   `ort::Session::run`, no porque modifique estado de aplicación.
+//! - **`DpdfStream`** (mutable, por archivo): estado de ejecución por stream
+//!   con buffers pre-allocados (estado recurrente + frame de salida). Una vez
+//!   creado con `session.stream()`, el bucle de inferencia no ejecuta ninguna
+//!   asignación en heap: el espectro va en stack (~3,8 KB), los tensores de
+//!   entrada son vistas prestadas (`TensorRef`), y la salida se escribe en el
+//!   buffer reutilizado del stream.
 
 use crate::errors::E;
 use crate::models::ModelPaths;
 use ort::session::Session;
-use ort::value::Value;
+use ort::value::TensorRef;
 use rustfft::num_complex::Complex32;
 use std::sync::Mutex;
 
-/// Estructura contenedora de la sesión ONNX Runtime CPU y su estado recurrente.
+// ─── Sesión (lógicamente inmutable) ──────────────────────────────────────────
+
+/// Sesión ONNX Runtime CPU con el estado inicial cacheado.
+///
+/// Tras `load()`, ningún campo de aplicación cambia. `ort::Session::run`
+/// requiere `&mut self` por su API interna, pero no altera estado observable.
+/// Para procesar audio, crear un `DpdfStream` vía `session.stream()` que
+/// encapsula todo el estado mutable por archivo.
 pub struct DpdfNetSession {
     session: Session,
     state_size: usize,
     /// Estado inicial cacheado: parseado una sola vez en `load()` para evitar
-    /// parsear los metadatos CSV en cada llamada a `infer()`.
+    /// parsear los metadatos CSV en cada llamada.
     cached_initial_state: Vec<f32>,
 }
 
@@ -164,33 +184,78 @@ impl DpdfNetSession {
         })
     }
 
-    /// Procesa un único frame STFT actualizando el estado interno del modelo.
+    /// Crea un `DpdfStream` con los buffers pre-allocados para procesar un
+    /// archivo de audio. El stream encapsula todo el estado mutable por archivo:
+    /// el buffer del estado recurrente y el frame de salida pre-allocado.
     ///
-    /// Diseñado para ser llamado frame a frame desde `denoise_wav_with_provider`
-    /// con un callback de progreso granular. El estado se mantiene en `state_buf`
-    /// que el llamador gestiona entre frames (ver `infer()`).
-    pub fn infer_frame(
-        &mut self,
-        frame: &[Complex32],
-        state_buf: &mut Vec<f32>,
-    ) -> Result<Vec<Complex32>, E> {
-        // Tensor de entrada [1, 1, 481, 2] con el espectro en real/imag.
-        let mut spec = vec![0.0_f32; crate::df::stft::NB_BINS * 2];
+    /// Toma `&mut self` porque `ort::Session::run` lo requiere, no porque
+    /// modifique estado de aplicación.
+    ///
+    /// El bucle de inferencia sobre el stream no ejecuta asignaciones en heap.
+    pub fn stream(&mut self) -> DpdfStream<'_> {
+        let initial_state = self.cached_initial_state.clone();
+        DpdfStream {
+            session: self,
+            state_buf: initial_state,
+            out_frame: vec![Complex32::new(0.0, 0.0); crate::df::stft::NB_BINS],
+        }
+    }
+}
+
+// ─── Stream de ejecución por archivo ─────────────────────────────────────────
+
+/// Estado de ejecución mutable por archivo de audio.
+///
+/// Creado vía `DpdfNetSession::stream()`, mantiene el estado recurrente del
+/// modelo y el buffer de salida pre-allocado. Durante el bucle de inferencia
+/// frame a frame, `process_frame()` no ejecuta ninguna asignación en heap:
+///
+/// - El espectro de entrada va en un array en stack (~3,8 KB).
+/// - Los tensores de entrada son vistas prestadas (`TensorRef`, zero-copy).
+/// - El estado recurrente se actualiza in-place vía `copy_from_slice`.
+/// - El frame de salida se escribe en `out_frame` reutilizado.
+pub struct DpdfStream<'s> {
+    session: &'s mut DpdfNetSession,
+    /// Buffer del estado recurrente del modelo (90228 floats = ~352 KB).
+    /// Se inicializa con `cached_initial_state` y se actualiza in-place
+    /// en cada llamada a `process_frame()`.
+    state_buf: Vec<f32>,
+    /// Buffer pre-allocado para el frame de salida (481 bins complejos).
+    /// `process_frame()` escribe aquí y devuelve una referencia de lectura;
+    /// el llamador copia los datos al `Vec<Vec<Complex32>>` de salida con
+    /// una sola operación `to_vec()` o `clone_from_slice()`.
+    out_frame: Vec<Complex32>,
+}
+
+impl<'s> DpdfStream<'s> {
+    /// Procesa un único frame STFT y devuelve una referencia al frame de salida.
+    ///
+    /// **Zero heap allocations**: el espectro va en stack, los tensores son
+    /// vistas prestadas, el estado se actualiza in-place y la salida se escribe
+    /// en el buffer pre-allocado `out_frame`.
+    ///
+    /// El llamador debe copiar `&[Complex32]` al destino antes de la siguiente
+    /// llamada, ya que `process_frame` sobrescribe `out_frame`.
+    pub fn process_frame(&mut self, frame: &[Complex32]) -> Result<&[Complex32], E> {
+        // Tensor de entrada [1, 1, 481, 2] con el espectro en real/imag en stack (~3,8 KB).
+        let mut spec = [0.0_f32; crate::df::stft::NB_BINS * 2];
         for (i, c) in frame.iter().enumerate() {
             spec[2 * i] = c.re;
             spec[2 * i + 1] = c.im;
         }
 
-        let spec_in = Value::from_array(([1usize, 1, frame.len(), 2], spec))
+        let spec_in = TensorRef::from_array_view(([1usize, 1, frame.len(), 2], spec.as_slice()))
             .map_err(|e| E::EFfmpegFailed(format!("Error creando tensor spec: {}", e)))?;
 
-        // Clonar el estado activo para pasarlo al modelo. Value::from_array toma
-        // ownership, por lo que se necesita un buffer separado para el input.
-        // Esta clonación de 352 KB es la mínima necesaria dado el API de ort 2.x.
-        let state_in = Value::from_array(([state_buf.len()], state_buf.clone()))
-            .map_err(|e| E::EFfmpegFailed(format!("Error creando tensor state_in: {}", e)))?;
+        // Vista prestada del estado (zero-copy): sin clonación de 352 KB por frame.
+        let state_in =
+            TensorRef::from_array_view(([self.state_buf.len()], self.state_buf.as_slice()))
+                .map_err(|e| {
+                    E::EFfmpegFailed(format!("Error creando tensor state_in: {}", e))
+                })?;
 
         let outputs = self
+            .session
             .session
             .run(ort::inputs!["spec" => spec_in, "state_in" => state_in])
             .map_err(|e| E::EFfmpegFailed(format!("Error en inferencia DPDFNet: {}", e)))?;
@@ -202,49 +267,26 @@ impl DpdfNetSession {
             .try_extract_tensor::<f32>()
             .map_err(|e| E::EFfmpegFailed(format!("Error extrayendo state_out: {}", e)))?;
 
-        if state_out.len() != self.state_size {
+        if state_out.len() != self.session.state_size {
             return Err(E::EFfmpegFailed(format!(
                 "state_out con {} elementos, esperados {}",
                 state_out.len(),
-                self.state_size
+                self.session.state_size
             )));
         }
 
-        // Actualizar el estado en el buffer del llamador en lugar de allocar uno nuevo.
-        state_buf.clear();
-        state_buf.extend_from_slice(state_out);
+        // Actualizar estado in-place (sin clear + extend, que podría reasignar).
+        self.state_buf.copy_from_slice(state_out);
 
-        // Reconstruir el frame complejo de salida.
-        let mut out_frame = vec![Complex32::new(0.0, 0.0); frame.len()];
+        // Escribir el frame de salida en el buffer pre-allocado.
         for i in 0..frame.len() {
             if 2 * i + 1 < spec_e.len() {
-                out_frame[i] = Complex32::new(spec_e[2 * i], spec_e[2 * i + 1]);
+                self.out_frame[i] = Complex32::new(spec_e[2 * i], spec_e[2 * i + 1]);
+            } else {
+                self.out_frame[i] = Complex32::new(0.0, 0.0);
             }
         }
-        Ok(out_frame)
-    }
-
-    /// Ejecuta la inferencia frame a frame sobre una secuencia de frames STFT,
-    /// encadenando el estado recurrente entre frames.
-    ///
-    /// Implementado sobre `infer_frame()`. El estado inicial se toma del campo
-    /// `cached_initial_state` (parseado una sola vez en `load()`).
-    ///
-    /// Para progreso granular usar directamente `infer_frame()` con el
-    /// estado inicial devuelto por `initial_state_clone()`.
-    pub fn infer(&mut self, frames: &[Vec<Complex32>]) -> Result<Vec<Vec<Complex32>>, E> {
-        let mut state = self.cached_initial_state.clone();
-        let mut out = Vec::with_capacity(frames.len());
-        for frame in frames.iter() {
-            out.push(self.infer_frame(frame, &mut state)?);
-        }
-        Ok(out)
-    }
-
-    /// Devuelve una copia del estado inicial para uso en bucles externos
-    /// con `infer_frame()` y progreso granular.
-    pub fn initial_state_clone(&self) -> Vec<f32> {
-        self.cached_initial_state.clone()
+        Ok(&self.out_frame[..frame.len()])
     }
 }
 

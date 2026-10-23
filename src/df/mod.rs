@@ -78,15 +78,15 @@ pub fn denoise_wav_with_provider(
         ));
     }
 
-    // Inferencia frame a frame encadenando estado con progreso granular (~5% por tick).
+    // Inferencia frame a frame con DpdfStream (zero heap alloc en el bucle).
     let total_frames = stft_frames.len();
     let step = (total_frames / 20).max(1);
-    let mut state = session.initial_state_clone();
+    let mut stream = session.stream();
     let mut enhanced_frames = Vec::with_capacity(total_frames);
 
     for (i, frame) in stft_frames.iter().enumerate() {
-        let out_frame = session.infer_frame(frame, &mut state)?;
-        enhanced_frames.push(out_frame);
+        let out_ref = stream.process_frame(frame)?;
+        enhanced_frames.push(out_ref.to_vec());
         if (i + 1) % step == 0 || i + 1 == total_frames {
             let done_secs = (i + 1) as f64 / total_frames as f64 * total_duration_secs;
             progress_cb(done_secs, total_duration_secs);

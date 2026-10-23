@@ -4,13 +4,14 @@
 
 ### Features
 - Protección de consonantes sordas en el gate de pausa (`src/df/mod.rs::apply_pause_gate`): se introduce `GATE_ZCR_FRICATIVE_THRESHOLD = 0.22` como clasificador condicionado en marcos con energía intermedia (`db >= peak - GATE_LO_DB`), previniendo atenuaciones abruptas ("mordida") en fonemas fricativos y oclusivos débiles sin abrir el gate ante ruido residual en silencios profundos.
-- Progreso granular del DSP (`src/df/mod.rs` y `src/df/net.rs`): inferencia frame a frame vía `infer_frame()` reportando avance porcentual fluido (~5% por tick) a través del callback del pipeline, evitando bloqueos visuales en la interfaz entre el 6% y 80% durante procesamientos extensos.
+- Progreso granular del DSP (`src/df/mod.rs` y `src/df/net.rs`): inferencia frame a frame vía `DpdfStream::process_frame()` reportando avance porcentual fluido (~5% por tick) a través del callback del pipeline, evitando bloqueos visuales en la interfaz entre el 6% y 80% durante procesamientos extensos.
 - Gate de pausa en la síntesis (`src/df/mod.rs::apply_pause_gate`): VAD solo-salida sobre RMS por marcos de 1440 muestras (30 ms) — voz si `rms >= pico−30 dB`, salida de voz si `rms <= pico−45 dB` durante 3 marcos, hangover de 5 — que atenúa −25 dB las pausas con fundidos raised-cosine de 30 ms, justo antes de cuantizar a PCM16. Por qué: el residuo que el modelo deja en las pausas estaba muy por encima de la voz limpia y hundía SI-SDR, p5, STOI y PESQ; la voz queda multiplicada por 1.0 (bit-idéntica a la síntesis) y no hay ganancia, normalización global ni limiter. Validado 7/7 en la puerta de calidad sin regresiones (`docs/benchmark.md` §5) y con la mejora ratificada después en `tools/quality/baseline.json` (ver `Calidad`); la puerta sigue en verde en la corrida posterior a la ratificación.
 
 ### Fixes
 - Extracción de audio PCM16 garantizada (`src/ffmpeg_io.rs`): se fuerza `-sample_fmt s16` en `extract_mono48k()` para prevenir fallos silenciosos o lectura de muestras flotantes corruptas cuando FFmpeg extrae desde contenedores con audio nativo float.
 
 ### Perf
+- Inferencia frame a frame zero-copy y eliminación de asignaciones en heap (`src/df/net.rs` y `src/df/mod.rs`): arquitectura `DpdfStream` para procesamiento por archivo con buffers pre-allocados (`out_frame`, `state_buf`), espectro en stack (~3,8 KB) y vistas prestadas `TensorRef::from_array_view` tanto para el espectro como para el estado recurrente (90.228 floats = ~352 KB). Se elimina por completo la clonación de 352 KB por frame impuesta anteriormente por `Value::from_array`, reduciendo a cero las asignaciones en heap durante el bucle de inferencia.
 - Cacheo del estado inicial recurrente (`src/df/net.rs`): `DpdfNetSession::load()` parsea los metadatos CSV de inicialización del modelo ONNX una única vez durante la carga en vez de en cada llamada a `infer()`, eliminando parseos redundantes y reduciendo la presión en el heap.
 
 ### Docs
