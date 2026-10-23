@@ -1,6 +1,6 @@
 //! Test de errores y taxonomía de salidas.
 //!
-//! Ver `specifications.md §2-4` y `design.md §8, §10 punto 4`.
+//! Ver `specifications.md §2-4` y `design.md §8, §10 punto 6`.
 //! Requiere `ffmpeg 6+` real (para probe), `FakeProvider` sin red/modelo.
 
 use denoise::cli::{expand_inputs, resolve_outputs, run_dry_run, ResolvedItem};

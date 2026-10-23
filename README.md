@@ -327,7 +327,7 @@ Qué cubre cada nivel:
 
 | Nivel | Contenido |
 |:--- |:--- |
-| `cargo test` | `test_naming` (resolución de nombres, colisiones, recursión), `test_errors` (códigos de error con `FakeProvider`), `test_reporter` (orden y JSONL), `test_stft` (reconstrucción y delay) |
+| `cargo test` | `test_naming` (resolución de nombres, colisiones, recursión), `test_audio_egress` (matriz de códecs de audio con ffmpeg, sin modelo), `test_errors` (códigos de error con `FakeProvider`), `test_reporter` (orden y JSONL), `test_stft` (reconstrucción y delay) |
 | `cargo test --release -- --ignored` | `test_golden` (mejora ≥5 dB y paridad ≥60 dB frente a la referencia), `test_remux` (stream copy y hash de vídeo) y `test_audio_pipeline` (E2E WAV → WAV limpio con verificación de duración y limpieza de temporales) |
 
 > [!NOTE]

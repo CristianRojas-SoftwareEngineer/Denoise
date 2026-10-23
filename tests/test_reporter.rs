@@ -1,6 +1,6 @@
 //! Test de reportería — verifica orden [i/N], JSONL parseable, summary.
 //!
-//! Ver `specifications.md RF-08` y `design.md §10 punto 5`.
+//! Ver `specifications.md RF-08` y `design.md §10 punto 7`.
 
 use denoise::cli::{BatchSummary, ItemStatus, JsonLogLine, JsonSummaryLine, ResolvedItem};
 use std::path::PathBuf;

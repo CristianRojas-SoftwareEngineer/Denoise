@@ -173,7 +173,7 @@ CLI offline-first que limpia ruido de voz de 1..N medios (video o audio), parame
 * Mensajes de error accionables (`qué pasó + qué hacer`). Exit codes estables: `0 ok/skip, 1 ffmpeg/modelo/IO, 2 entrada/salida, 3 cancelado`. `E_IO → 1`: disco lleno, sin permiso escritura, sin espacio en descarga, `--output-name`/`--output-dir`/`--model-dir` no creables. Batch mixto con fallos `1` y `2` → exit `1` (prioridad `1>2`, `3` siempre gana si hubo cancelación). `--json` estable para `jq`. `--version` sin `ffmpeg` imprime `ffmpeg missing` en lugar de fallar. (`--dry-run` exit `0` con CLI estructuralmente válida; errores estructurales → exit `2` antes de simular).
 
 ### RNF-07 Mantenibilidad y test
-* Módulos `df/{mod,stft,net}.rs` <400 líneas c/u (243/292/235); el resto del binario queda fuera de esta meta., funciones puras donde sea posible (`resolve_output()` en `cli.rs` vía `lib.rs` testeable sin ffmpeg). `tests/test_naming.rs` sin red ni modelo; `test_golden/test_remux/test_audio_pipeline` marcados `#[ignore]` (slow).
+* Módulos `df/{mod,stft,net}.rs` <400 líneas c/u (243/292/235); el resto del binario queda fuera de esta meta., funciones puras donde sea posible (`resolve_output()` en `cli.rs` vía `lib.rs` testeable sin ffmpeg). `tests/test_naming.rs` sin red ni modelo; `tests/test_audio_egress.rs` cubre la matriz de códecs con ffmpeg sin modelo; `test_golden/test_remux/test_audio_pipeline` marcados `#[ignore]` (slow).
 * Comandos: `cargo test` (rápido, requiere `ffmpeg 6+` real + `FakeProvider` sin red/modelo) y `cargo test --release -- --ignored` (dorado + e2e). Sin warnings de `clippy`.
 
 ### RNF-08 Licencias y atribución
